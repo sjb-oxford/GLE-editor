@@ -14,6 +14,7 @@ Run:
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import time
@@ -78,14 +79,16 @@ def _build_splash_pixmap() -> QPixmap:
 
 
 class AboutPopup(QWidget):
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, app=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("About")
         self.setWindowFlag(Qt.WindowType.Tool, True)
         self.setStyleSheet(
             "QWidget { background-color: white; border: 1px solid #888; }"
             "QLabel { border: none; }"
+            "QPushButton { border: 1px solid #888; padding: 6px 12px; border-radius: 3px; }"
         )
+        self._app = app
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 14, 18, 14)
@@ -95,8 +98,40 @@ class AboutPopup(QWidget):
         label.setFont(QFont("Helvetica", 11))
         layout.addWidget(label)
 
+        # GLE configuration button
+        btn_config = QPushButton("Configure GLE path...")
+        btn_config.clicked.connect(self._configure_gle)
+        layout.addWidget(btn_config)
+
+        # Display current GLE path if available
+        if app and app._gle_executable:
+            info_label = QLabel(f"GLE path: {app._gle_executable}")
+            info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            info_label.setFont(QFont("Helvetica", 9))
+            info_label.setStyleSheet("color: #666;")
+            layout.addWidget(info_label)
+
+    def _configure_gle(self) -> None:
+        if self._app:
+            user_path = self._app._prompt_for_gle_path()
+            if user_path:
+                self._app._gle_executable = user_path
+                self._app.settings.setValue("gle_executable", user_path)
+                self._app.settings.sync()
+                QMessageBox.information(
+                    self,
+                    "GLE path saved",
+                    f"GLE executable path saved:\n{user_path}",
+                )
+                self.close()
+                self._app.show_about()  # Refresh the dialog
+            else:
+                QMessageBox.information(self, "Cancelled", "GLE path configuration cancelled.")
+
     def mousePressEvent(self, event) -> None:
-        self.close()
+        # Only close on click if clicking on the text area, not buttons
+        if isinstance(event.widget(), QLabel):
+            self.close()
         super().mousePressEvent(event)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1015,6 +1050,7 @@ class GleApp(QMainWindow):
         self.settings = QSettings(APP_ORG, APP_NAME)
         self._current_path: Path | None = None
         self._autosave_dirty = False
+        self._gle_executable: str | None = None
 
         # Autosave 1 second after the last keystroke
         self._autosave_timer = QTimer(self)
@@ -1023,6 +1059,7 @@ class GleApp(QMainWindow):
         self._autosave_timer.timeout.connect(self._autosave)
 
         self._build_ui()
+        self._initialize_gle_path()
         self._restore_state()
         self.editor.moveCursor(QTextCursor.MoveOperation.End)
         self.editor.setFocus()
@@ -1356,7 +1393,84 @@ class GleApp(QMainWindow):
         splitter.setSizes([580, 720])
         root.addWidget(splitter, 1)
 
-    # ── Persistence ───────────────────────────────────────────────────────────
+    # ── GLE executable initialization ──────────────────────────────────────────
+
+    def _find_gle_executable(self) -> str | None:
+        """Try to find the GLE executable using 'which' or check common paths."""
+        # Try 'which gle'
+        try:
+            result = subprocess.run(
+                ["which", "gle"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Try shutil.which
+        gle_path = shutil.which("gle")
+        if gle_path:
+            return gle_path
+
+        return None
+
+    def _prompt_for_gle_path(self) -> str | None:
+        """Prompt the user to locate the GLE executable."""
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            "Locate GLE executable",
+            "/usr/local/bin",
+            "GLE executable (gle);;All files (*.*)",
+        )
+        if path_str:
+            return path_str
+        return None
+
+    def _initialize_gle_path(self) -> None:
+        """Initialize the GLE executable path on startup."""
+        # Check if we have a stored path from previous runs
+        stored_path = self.settings.value("gle_executable", "", type=str)
+        if stored_path and Path(stored_path).exists():
+            self._gle_executable = stored_path
+            return
+
+        # Try to find GLE automatically
+        found_path = self._find_gle_executable()
+        if found_path:
+            self._gle_executable = found_path
+            self.settings.setValue("gle_executable", found_path)
+            self.settings.sync()
+            return
+
+        # GLE not found: prompt user to locate it
+        QMessageBox.information(
+            self,
+            "GLE executable not found",
+            "The GLE (Graphics Layout Engine) executable was not found on your system.\n\n"
+            "Please locate the 'gle' executable in the next dialog.",
+        )
+
+        user_path = self._prompt_for_gle_path()
+        if user_path:
+            self._gle_executable = user_path
+            self.settings.setValue("gle_executable", user_path)
+            self.settings.sync()
+            QMessageBox.information(
+                self,
+                "GLE path saved",
+                f"GLE executable path saved:\n{user_path}",
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "GLE not configured",
+                "GLE executable was not configured. The GLE and EPS buttons will not work.",
+            )
+
+    # ── Persistence ───────────────────────────────────────────────────────────────
 
     def _restore_state(self) -> None:
         geometry = self.settings.value("window_geometry")
@@ -1527,6 +1641,14 @@ class GleApp(QMainWindow):
                                 "Please load or save a GLE file first.")
             return
 
+        if self._gle_executable is None:
+            QMessageBox.critical(
+                self, "GLE not configured",
+                "GLE executable was not found. Please configure the GLE path in the About dialog.",
+            )
+            self.status_label.setText("GLE not configured")
+            return
+
         self._write_current()   # make sure the file on disk is current
 
         self.status_label.setText("Running GLE…")
@@ -1534,17 +1656,17 @@ class GleApp(QMainWindow):
 
         try:
             result = subprocess.run(
-                ["gle", "-device", "pdf", str(self._current_path)],
+                [self._gle_executable, "-device", "pdf", str(self._current_path)],
                 capture_output=True,
                 text=True,
                 cwd=str(self._current_path.parent),
             )
-        except FileNotFoundError:
+        except (FileNotFoundError, OSError) as e:
             QMessageBox.critical(
-                self, "GLE not found",
-                "The 'gle' executable was not found on the system PATH.",
+                self, "GLE execution failed",
+                f"Error running GLE: {str(e)}\n\nThe configured path may be invalid.",
             )
-            self.status_label.setText("GLE not found")
+            self.status_label.setText("GLE execution failed")
             return
 
         if result.returncode != 0:
@@ -1568,6 +1690,14 @@ class GleApp(QMainWindow):
                                 "Please load or save a GLE file first.")
             return
 
+        if self._gle_executable is None:
+            QMessageBox.critical(
+                self, "GLE not configured",
+                "GLE executable was not found. Please configure the GLE path in the About dialog.",
+            )
+            self.status_label.setText("GLE not configured")
+            return
+
         self._write_current()   # make sure the file on disk is current
 
         self.status_label.setText("Running GLE (EPS)...")
@@ -1575,17 +1705,17 @@ class GleApp(QMainWindow):
 
         try:
             result = subprocess.run(
-                ["gle", str(self._current_path)],
+                [self._gle_executable, str(self._current_path)],
                 capture_output=True,
                 text=True,
                 cwd=str(self._current_path.parent),
             )
-        except FileNotFoundError:
+        except (FileNotFoundError, OSError) as e:
             QMessageBox.critical(
-                self, "GLE not found",
-                "The 'gle' executable was not found on the system PATH.",
+                self, "GLE execution failed",
+                f"Error running GLE: {str(e)}\n\nThe configured path may be invalid.",
             )
-            self.status_label.setText("GLE not found")
+            self.status_label.setText("GLE execution failed")
             return
 
         if result.returncode != 0:
@@ -1605,7 +1735,7 @@ class GleApp(QMainWindow):
         self.close()
 
     def show_about(self) -> None:
-        self._about_popup = AboutPopup(self)
+        self._about_popup = AboutPopup(self, app=self)
         self._about_popup.adjustSize()
         center = self.geometry().center()
         self._about_popup.move(
