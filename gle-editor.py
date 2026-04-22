@@ -14,6 +14,7 @@ Run:
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -53,6 +54,8 @@ ABOUT_TEXT = (
     "Version 1.0\n"
     "April 2026"
 )
+
+COMMON_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
 
 
 def _build_splash_pixmap() -> QPixmap:
@@ -1415,6 +1418,12 @@ class GleApp(QMainWindow):
         if gle_path:
             return gle_path
 
+        # GUI apps on macOS often launch with a minimal PATH; probe common install locations.
+        for bin_dir in COMMON_BIN_DIRS:
+            candidate = Path(bin_dir) / "gle"
+            if candidate.exists() and candidate.is_file():
+                return str(candidate)
+
         return None
 
     def _prompt_for_gle_path(self) -> str | None:
@@ -1654,12 +1663,23 @@ class GleApp(QMainWindow):
         self.status_label.setText("Running GLE…")
         QApplication.processEvents()
 
+        env = os.environ.copy()
+        path_entries = []
+        if self._gle_executable:
+            path_entries.append(str(Path(self._gle_executable).parent))
+        path_entries.extend(COMMON_BIN_DIRS)
+        current_path = env.get("PATH", "")
+        if current_path:
+            path_entries.append(current_path)
+        env["PATH"] = ":".join(dict.fromkeys(path_entries))
+
         try:
             result = subprocess.run(
                 [self._gle_executable, "-device", "pdf", str(self._current_path)],
                 capture_output=True,
                 text=True,
                 cwd=str(self._current_path.parent),
+                env=env,
             )
         except (FileNotFoundError, OSError) as e:
             QMessageBox.critical(
@@ -1682,6 +1702,14 @@ class GleApp(QMainWindow):
             self.status_label.setText(f"PDF updated: {pdf.name}")
             self._reset_element_buttons()
         else:
+            detail = (result.stderr.strip() or result.stdout.strip() or "No diagnostic output from GLE.")
+            QMessageBox.warning(
+                self,
+                "No PDF produced",
+                "GLE exited successfully but no PDF file was found next to the .gle file.\n\n"
+                f"Checked: {pdf}\n\n"
+                f"GLE output:\n{detail}",
+            )
             self.status_label.setText("GLE ran but no PDF produced")
 
     def run_eps(self) -> None:
