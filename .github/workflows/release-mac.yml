@@ -39,9 +39,6 @@ jobs:
       - name: Build mac app
         run: |
           pyinstaller --noconfirm --windowed --name "GLE Editor" --icon icon.icns \
-            --add-data "icon.iconset:icon.iconset" \
-            --add-data "icon.png:." \
-            --add-data "gle-icon-large.png:." \
             gle_launcher.py
 
 
