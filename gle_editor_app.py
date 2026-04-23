@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QTextCursor
+from PySide6.QtGui import QColor, QFont, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -58,6 +58,42 @@ ABOUT_TEXT = (
 COMMON_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
 
 
+def _resource_base_dir() -> Path:
+    if hasattr(sys, "_MEIPASS"):
+        return Path(getattr(sys, "_MEIPASS"))
+    return Path(__file__).resolve().parent
+
+
+def _load_icon_pixmap(size: int) -> QPixmap:
+    base = _resource_base_dir()
+    candidates = [
+        base / "icon.iconset" / "icon_512x512.png",
+        base / "icon.iconset" / "icon_256x256.png",
+        base / "icon.iconset" / "icon_128x128.png",
+        base / "icon.iconset" / "icon_32x32.png",
+        base / "icon.png",
+        base / "gle-icon-large.png",
+    ]
+    for path in candidates:
+        if path.exists():
+            pix = QPixmap(str(path))
+            if not pix.isNull():
+                return pix.scaled(
+                    size,
+                    size,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+    return QPixmap()
+
+
+def _load_app_icon() -> QIcon:
+    pix = _load_icon_pixmap(128)
+    if pix.isNull():
+        return QIcon()
+    return QIcon(pix)
+
+
 def _build_splash_pixmap() -> QPixmap:
     pixmap = QPixmap(520, 220)
     pixmap.fill(QColor("#f4f8ff"))
@@ -68,14 +104,18 @@ def _build_splash_pixmap() -> QPixmap:
     painter.setPen(QPen(QColor("#2f6db3"), 2))
     painter.drawRect(24, 24, 472, 172)
 
+    icon = _load_icon_pixmap(72)
+    if not icon.isNull():
+        painter.drawPixmap(52, 58, icon)
+
     painter.setPen(QColor("#153b66"))
     title_font = QFont("Helvetica", 24, QFont.Weight.Bold)
     painter.setFont(title_font)
-    painter.drawText(48, 95, "GLE Editor")
+    painter.drawText(140, 95, "GLE Editor")
 
     subtitle_font = QFont("Helvetica", 12)
     painter.setFont(subtitle_font)
-    painter.drawText(48, 132, "Loading interface and preview tools...")
+    painter.drawText(140, 132, "Loading interface and preview tools...")
 
     painter.end()
     return pixmap
@@ -1048,6 +1088,9 @@ class GleApp(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("GLE Editor")
+        app_icon = _load_app_icon()
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
         self.resize(1400, 860)
 
         self.settings = QSettings(APP_ORG, APP_NAME)
@@ -1093,6 +1136,14 @@ class GleApp(QMainWindow):
             "QPushButton:pressed, QToolButton:pressed { border-color: #444; }"
             "QToolButton::menu-indicator { image: none; }"
         )
+
+        icon_label = QLabel()
+        header_icon = _load_icon_pixmap(16)
+        if not header_icon.isNull():
+            icon_label.setPixmap(header_icon)
+        icon_label.setFixedSize(18, 18)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        bar.addWidget(icon_label)
 
         btn_new = QPushButton("New")
         btn_new.clicked.connect(self.new_file)

@@ -5,10 +5,39 @@ from __future__ import annotations
 
 import sys
 import traceback
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QApplication, QMessageBox, QSplashScreen
+
+
+def _resource_base_dir() -> Path:
+    if hasattr(sys, "_MEIPASS"):
+        return Path(getattr(sys, "_MEIPASS"))
+    return Path(__file__).resolve().parent
+
+
+def _load_icon_pixmap(size: int) -> QPixmap:
+    base = _resource_base_dir()
+    candidates = [
+        base / "icon.iconset" / "icon_512x512.png",
+        base / "icon.iconset" / "icon_256x256.png",
+        base / "icon.iconset" / "icon_128x128.png",
+        base / "icon.png",
+        base / "gle-icon-large.png",
+    ]
+    for path in candidates:
+        if path.exists():
+            pix = QPixmap(str(path))
+            if not pix.isNull():
+                return pix.scaled(
+                    size,
+                    size,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+    return QPixmap()
 
 
 def _build_splash_pixmap() -> QPixmap:
@@ -21,12 +50,16 @@ def _build_splash_pixmap() -> QPixmap:
     painter.setPen(QPen(QColor("#2f6db3"), 2))
     painter.drawRect(24, 24, 472, 172)
 
+    icon = _load_icon_pixmap(72)
+    if not icon.isNull():
+        painter.drawPixmap(52, 58, icon)
+
     painter.setPen(QColor("#153b66"))
     painter.setFont(QFont("Helvetica", 24, QFont.Weight.Bold))
-    painter.drawText(48, 95, "GLE Editor")
+    painter.drawText(140, 95, "GLE Editor")
 
     painter.setFont(QFont("Helvetica", 12))
-    painter.drawText(48, 132, "Loading interface and preview tools...")
+    painter.drawText(140, 132, "Loading interface and preview tools...")
     painter.end()
     return pixmap
 
