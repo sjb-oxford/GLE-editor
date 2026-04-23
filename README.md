@@ -7,6 +7,8 @@ and visually build GLE diagrams while keeping the source `.gle` file and rendere
 GLE itself is available on https://glx.sourceforge.io
 
 
+![Screenshot](assets/icon.png)
+
 ## Features
 
 - Side-by-side **GLE source editor** and **PDF preview**
