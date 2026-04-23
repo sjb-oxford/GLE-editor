@@ -24,8 +24,6 @@ def _load_icon_pixmap(size: int) -> QPixmap:
         base / "icon.iconset" / "icon_512x512.png",
         base / "icon.iconset" / "icon_256x256.png",
         base / "icon.iconset" / "icon_128x128.png",
-        base / "icon.png",
-        base / "gle-icon-large.png",
     ]
     for path in candidates:
         if path.exists():
