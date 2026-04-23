@@ -1,9 +1,11 @@
-name: build-mac
+name: Build mac app
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -11,10 +13,10 @@ jobs:
 
     steps:
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
@@ -26,10 +28,14 @@ jobs:
 
       - name: Build mac app
         run: |
-          pyinstaller --noconfirm --windowed --onefile GLE-editor.py
+          pyinstaller --noconfirm --windowed --name "GLE Editor" gle-editor.py
+
+      - name: Zip the app
+        run: |
+          ditto -c -k --keepParent "dist/GLE Editor.app" "GLE-Editor-macOS.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: mac-build
-          path: dist/*.app
+          path: GLE-Editor-macOS.zip

@@ -1,0 +1,94 @@
+name: Release mac app
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Mark this release as a prerelease?"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build mac app
+        run: |
+          pyinstaller --noconfirm --windowed --name "GLE Editor" gle-editor.py
+
+      - name: Zip the app
+        run: |
+          ditto -c -k --keepParent "dist/GLE Editor.app" "GLE-Editor-macOS.zip"
+
+      - name: Compute next version tag
+        id: version
+        env:
+          GITHUB_OUTPUT: ${{ github.output }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import subprocess
+
+          tags = subprocess.check_output(
+              ["git", "tag", "--list", "v*"],
+              text=True
+          ).split()
+
+          versions = []
+          for tag in tags:
+              m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag.strip())
+              if m:
+                  versions.append(tuple(map(int, m.groups())))
+
+          if versions:
+              major, minor, patch = max(versions)
+              patch += 1
+          else:
+              major, minor, patch = 1, 0, 0
+
+          next_tag = f"v{major}.{minor}.{patch}"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"tag={next_tag}\n")
+          PY
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          args=()
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+
+          gh release create "${{ steps.version.outputs.tag }}" \
+            "GLE-Editor-macOS.zip" \
+            --title "GLE Editor ${{ steps.version.outputs.tag }}" \
+            --notes "Automated release from commit ${{ github.sha }}" \
+            --target "${{ github.sha }}" \
+            "${args[@]}"
