@@ -48,16 +48,16 @@ def _build_splash_pixmap() -> QPixmap:
     painter.setPen(QPen(QColor("#2f6db3"), 2))
     painter.drawRect(24, 24, 472, 172)
 
-    icon = _load_icon_pixmap(72)
+    icon = _load_icon_pixmap(124)
     if not icon.isNull():
-        painter.drawPixmap(52, 58, icon)
+        painter.drawPixmap(36, 48, icon)
 
     painter.setPen(QColor("#153b66"))
     painter.setFont(QFont("Helvetica", 24, QFont.Weight.Bold))
-    painter.drawText(140, 95, "GLE Editor")
+    painter.drawText(190, 95, "GLE Editor")
 
     painter.setFont(QFont("Helvetica", 12))
-    painter.drawText(140, 132, "Loading interface and preview tools...")
+    painter.drawText(190, 132, "Loading interface and preview tools...")
     painter.end()
     return pixmap
 
