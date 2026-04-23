@@ -58,30 +58,58 @@ ABOUT_TEXT = (
 COMMON_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
 
 
-def _resource_base_dir() -> Path:
+def _resource_search_dirs() -> list[Path]:
+    dirs: list[Path] = []
+
     if hasattr(sys, "_MEIPASS"):
-        return Path(getattr(sys, "_MEIPASS"))
-    return Path(__file__).resolve().parent
+        dirs.append(Path(getattr(sys, "_MEIPASS")))
+
+    script_dir = Path(__file__).resolve().parent
+    exe_dir = Path(sys.executable).resolve().parent
+
+    dirs.extend(
+        [
+            script_dir,
+            exe_dir,
+            exe_dir.parent,
+            exe_dir.parent / "Resources",
+            Path.cwd(),
+        ]
+    )
+
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for d in dirs:
+        key = str(d)
+        if key not in seen:
+            unique.append(d)
+            seen.add(key)
+    return unique
 
 
 def _load_icon_pixmap(size: int) -> QPixmap:
-    base = _resource_base_dir()
-    candidates = [
-        base / "icon.iconset" / "icon_512x512.png",
-        base / "icon.iconset" / "icon_256x256.png",
-        base / "icon.iconset" / "icon_128x128.png",
-        base / "icon.iconset" / "icon_32x32.png",
+    relative_candidates = [
+        Path("icon.iconset/icon_512x512.png"),
+        Path("icon.iconset/icon_256x256.png"),
+        Path("icon.iconset/icon_128x128.png"),
+        Path("icon.iconset/icon_64x64.png"),
+        Path("icon.iconset/icon_32x32.png"),
+        Path("icon.png"),
+        Path("gle-icon-large.png"),
+        Path("icon.icns"),
     ]
-    for path in candidates:
-        if path.exists():
-            pix = QPixmap(str(path))
-            if not pix.isNull():
-                return pix.scaled(
-                    size,
-                    size,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
+    for base in _resource_search_dirs():
+        for rel in relative_candidates:
+            path = base / rel
+            if path.exists():
+                pix = QPixmap(str(path))
+                if not pix.isNull():
+                    return pix.scaled(
+                        size,
+                        size,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
     return QPixmap()
 
 
