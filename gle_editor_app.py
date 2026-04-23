@@ -136,6 +136,14 @@ class AboutPopup(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 14, 18, 14)
 
+        about_icon = QLabel()
+        about_pix = _load_icon_pixmap(72)
+        if not about_pix.isNull():
+            about_icon.setPixmap(about_pix)
+        about_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        about_icon.setFixedHeight(78)
+        layout.addWidget(about_icon)
+
         label = QLabel(ABOUT_TEXT)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setFont(QFont("Helvetica", 11))
@@ -1138,10 +1146,10 @@ class GleApp(QMainWindow):
         )
 
         icon_label = QLabel()
-        header_icon = _load_icon_pixmap(16)
+        header_icon = _load_icon_pixmap(32)
         if not header_icon.isNull():
             icon_label.setPixmap(header_icon)
-        icon_label.setFixedSize(18, 18)
+        icon_label.setFixedSize(34, 34)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bar.addWidget(icon_label)
 
