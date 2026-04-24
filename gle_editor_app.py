@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSplashScreen,
+    QSpinBox,
     QSplitter,
     QToolButton,
     QVBoxLayout,
@@ -1131,6 +1132,7 @@ class GleApp(QMainWindow):
         self._current_path: Path | None = None
         self._autosave_dirty = False
         self._gle_executable: str | None = None
+        self._line_spin_syncing = False
 
         # Autosave 1 second after the last keystroke
         self._autosave_timer = QTimer(self)
@@ -1240,9 +1242,30 @@ class GleApp(QMainWindow):
         self.insert_menu_button.setStyleSheet("background-color: #ff80ff;")  # light magenta
         bar.addWidget(self.insert_menu_button)
 
+        self.line_box = QWidget()
+        line_box_layout = QHBoxLayout(self.line_box)
+        line_box_layout.setContentsMargins(6, 2, 6, 2)
+        line_box_layout.setSpacing(4)
+
+        self.line_label = QLabel("Line:")
+        line_box_layout.addWidget(self.line_label)
+
+        self.line_spin = QSpinBox()
+        self.line_spin.setRange(1, 1)
+        self.line_spin.setValue(1)
+        self.line_spin.setFixedWidth(90)
+        line_box_layout.addWidget(self.line_spin)
+
+        self._set_line_spin_color(editing=False)
+        line_edit = self.line_spin.lineEdit()
+        if line_edit is not None:
+            line_edit.textEdited.connect(self._on_line_spin_text_edited)
+            line_edit.returnPressed.connect(self._jump_cursor_to_line_from_spin)
+        bar.addWidget(self.line_box)
+
         btn_about = QPushButton("About")
         btn_about.clicked.connect(self.show_about)
-        btn_about.setStyleSheet("background-color: white;")
+        btn_about.setStyleSheet("background-color: #ffeef4;")
         bar.addWidget(btn_about)
 
         btn_quit = QPushButton("Quit")
@@ -1446,6 +1469,7 @@ class GleApp(QMainWindow):
         self.editor.setFont(QFont("Courier New", 11))
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.editor.textChanged.connect(self._on_text_changed)
+        self.editor.cursorPositionChanged.connect(self._sync_line_spin_from_cursor)
         splitter.addWidget(self.editor)
 
         self.pdf_viewer = PdfViewer()
@@ -1480,6 +1504,8 @@ class GleApp(QMainWindow):
 
         splitter.setSizes([580, 720])
         root.addWidget(splitter, 1)
+
+        self._sync_line_spin_from_cursor()
 
     # ── GLE executable initialization ──────────────────────────────────────────
 
@@ -1625,6 +1651,7 @@ class GleApp(QMainWindow):
         self.editor.blockSignals(True)
         self.editor.setPlainText("")
         self.editor.blockSignals(False)
+        self._sync_line_spin_from_cursor()
         self._autosave_dirty = False
         self._write_current()
         self.pdf_viewer._scene.clear()
@@ -1654,6 +1681,7 @@ class GleApp(QMainWindow):
         self.editor.blockSignals(True)
         self.editor.setPlainText(text)
         self.editor.blockSignals(False)
+        self._sync_line_spin_from_cursor()
         self._autosave_dirty = False
 
         self.setWindowTitle(f"GLE Editor – {path.name}")
@@ -1703,8 +1731,52 @@ class GleApp(QMainWindow):
 
     def _on_text_changed(self) -> None:
         self._autosave_dirty = True
+        self._sync_line_spin_from_cursor()
         if self._current_path is not None:
             self._autosave_timer.start()   # resets the 1-second window
+
+    def _sync_line_spin_from_cursor(self) -> None:
+        max_line = max(1, self.editor.blockCount())
+        current_line = self.editor.textCursor().blockNumber() + 1
+        self._line_spin_syncing = True
+        try:
+            self.line_spin.setRange(1, max_line)
+            self.line_spin.setValue(current_line)
+        finally:
+            self._line_spin_syncing = False
+
+    def _on_line_spin_text_edited(self, _text: str) -> None:
+        self._set_line_spin_color(editing=True)
+
+    def _set_line_spin_color(self, editing: bool) -> None:
+        box_color = "#ffff99" if editing else "#ffffff"
+        self.line_box.setStyleSheet(
+            "background-color: " + box_color + ";"
+            "border: 1px solid #888;"
+            "border-radius: 4px;"
+        )
+        self.line_spin.setStyleSheet(
+            "QSpinBox { background-color: #ffffff; border: 1px solid #888; border-radius: 3px; }"
+            "QSpinBox QLineEdit { background-color: #ffffff; }"
+        )
+
+    def _jump_cursor_to_line_from_spin(self) -> None:
+        if self._line_spin_syncing:
+            return
+
+        max_line = max(1, self.editor.blockCount())
+        target_line = max(1, min(self.line_spin.value(), max_line))
+
+        block = self.editor.document().findBlockByNumber(target_line - 1)
+        if not block.isValid():
+            return
+
+        cursor = self.editor.textCursor()
+        cursor.setPosition(block.position() + block.length() - 1)
+        self.editor.setTextCursor(cursor)
+        self.editor.centerCursor()
+        self._set_line_spin_color(editing=False)
+        self.editor.setFocus()
 
     def _autosave(self) -> None:
         if self._autosave_dirty and self._current_path is not None:
