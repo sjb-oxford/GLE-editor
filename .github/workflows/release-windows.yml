@@ -51,22 +51,22 @@ jobs:
       - name: Create installer script
         run: |
           @"
-[Setup]
-AppName=GLE Editor
-AppVersion=1.0
-DefaultDirName={pf}\GLE Editor
-DefaultGroupName=GLE Editor
-OutputDir=.
-OutputBaseFilename=GLE-Editor-Installer
-Compression=lzma
-SolidCompression=yes
+          [Setup]
+          AppName=GLE Editor
+          AppVersion=1.0
+          DefaultDirName={pf}\GLE Editor
+          DefaultGroupName=GLE Editor
+          OutputDir=.
+          OutputBaseFilename=GLE-Editor-Installer
+          Compression=lzma
+          SolidCompression=yes 
 
-[Files]
-Source: "dist\GLE-Editor\*"; DestDir: "{app}"; Flags: recursesubdirs
+          [Files]
+          Source: "dist\GLE-Editor\*"; DestDir: "{app}"; Flags: recursesubdirs
 
-[Icons]
-Name: "{group}\GLE Editor"; Filename: "{app}\GLE-Editor.exe"
-"@ | Out-File -Encoding ASCII installer.iss
+          [Icons]
+          Name: "{group}\GLE Editor"; Filename: "{app}\GLE-Editor.exe"
+          "@ | Out-File -Encoding ASCII installer.iss
 
       - name: Build installer
         run: |
