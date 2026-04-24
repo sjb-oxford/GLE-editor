@@ -71,24 +71,24 @@ jobs:
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer.iss"
+      
+
+      - name: Get tag
+        id: get_tag
+        shell: bash
+        run: |
+          echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
 
       - name: Upload to GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.get_tag.outputs.tag }}
         run: |
-          $tag = (git describe --tags --abbrev=0).Trim()
-
-          gh release view $tag 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "GLE Editor $tag" --notes "Windows build"
-          }
-	  
-          gh release upload $tag `
-            "GLE-Editor-Windows.zip" `
-            "GLE-Editor-Installer.exe" `
-            --clobber
-
+          gh release upload $env:TAG `
+             "GLE-Editor-Windows.zip" `
+             "GLE-Editor-Installer.exe" `
+             --clobber
 
 
 
