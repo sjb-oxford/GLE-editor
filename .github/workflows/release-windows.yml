@@ -89,21 +89,25 @@ jobs:
           fi
 
       - name: Create GitHub Release
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           $tag = "${{ steps.version.outputs.tag }}"
-          if (-not $tag) { $tag = "v1.0.0" }
+          if (-not $tag) { $tag = "v1.0.0" }  
 
-          $args = ""
           if ("${{ inputs.prerelease }}" -eq "true") {
-            $args = "--prerelease"
+            gh release create $tag `
+              "GLE-Editor-Windows.zip" `
+              "GLE-Editor-Installer.exe" `
+              --title "GLE Editor $tag" `
+              --notes "Windows build" `
+              --prerelease
           }
-
-          gh release create $tag `
-            "GLE-Editor-Windows.zip" `
-            "GLE-Editor-Installer.exe" `
-            --title "GLE Editor $tag" `
-            --notes "Windows build" `
-            $args
+         else {
+           gh release create $tag `
+             "GLE-Editor-Windows.zip" `
+             "GLE-Editor-Installer.exe" `
+             --title "GLE Editor $tag" `
+             --notes "Windows build"
+         }
