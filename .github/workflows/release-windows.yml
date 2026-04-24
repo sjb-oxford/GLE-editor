@@ -42,31 +42,32 @@ jobs:
 
       - name: Zip EXE
         run: |
-          powershell Compress-Archive -Path "dist\GLE-Editor" -DestinationPath "GLE-Editor-Windows.zip"
+          Compress-Archive -Path "dist\GLE-Editor" -DestinationPath "GLE-Editor-Windows.zip"
 
       - name: Install Inno Setup
         run: |
           choco install innosetup -y
 
       - name: Create installer script
+        shell: pwsh
         run: |
           @"
-          [Setup]
-          AppName=GLE Editor
-          AppVersion=1.0
-          DefaultDirName={pf}\GLE Editor
-          DefaultGroupName=GLE Editor
-          OutputDir=.
-          OutputBaseFilename=GLE-Editor-Installer
-          Compression=lzma
-          SolidCompression=yes 
+[Setup]
+AppName=GLE Editor
+AppVersion=1.0
+DefaultDirName={pf}\GLE Editor
+DefaultGroupName=GLE Editor
+OutputDir=.
+OutputBaseFilename=GLE-Editor-Installer
+Compression=lzma
+SolidCompression=yes
 
-          [Files]
-          Source: "dist\GLE-Editor\*"; DestDir: "{app}"; Flags: recursesubdirs
+[Files]
+Source: "dist\GLE-Editor\*"; DestDir: "{app}"; Flags: recursesubdirs
 
-          [Icons]
-          Name: "{group}\GLE Editor"; Filename: "{app}\GLE-Editor.exe"
-          "@ | Out-File -Encoding ASCII installer.iss
+[Icons]
+Name: "{group}\GLE Editor"; Filename: "{app}\GLE-Editor.exe"
+"@ | Out-File -Encoding ASCII installer.iss
 
       - name: Build installer
         shell: pwsh
@@ -79,13 +80,13 @@ jobs:
         run: |
           tags=$(git tag -l "v*")
           if [ -z "$tags" ]; then
-            echo "tag=v1.0.0" >> $GITHUB_OUTPUT
+            echo "tag=v1.0.0" >> "$GITHUB_OUTPUT"
           else
             latest=$(echo "$tags" | sort -V | tail -n 1)
             version=${latest#v}
             IFS='.' read -r major minor patch <<< "$version"
             patch=$((patch + 1))
-            echo "tag=v$major.$minor.$patch" >> $GITHUB_OUTPUT
+            echo "tag=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create GitHub Release
@@ -94,7 +95,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ steps.version.outputs.tag }}"
-          if (-not $tag) { $tag = "v1.0.0" }  
+          if (-not $tag) { $tag = "v1.0.0" }
 
           if ("${{ inputs.prerelease }}" -eq "true") {
             gh release create $tag `
@@ -103,11 +104,10 @@ jobs:
               --title "GLE Editor $tag" `
               --notes "Windows build" `
               --prerelease
+          } else {
+            gh release create $tag `
+              "GLE-Editor-Windows.zip" `
+              "GLE-Editor-Installer.exe" `
+              --title "GLE Editor $tag" `
+              --notes "Windows build"
           }
-         else {
-           gh release create $tag `
-             "GLE-Editor-Windows.zip" `
-             "GLE-Editor-Installer.exe" `
-             --title "GLE Editor $tag" `
-             --notes "Windows build"
-         }
