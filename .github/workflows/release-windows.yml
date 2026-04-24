@@ -1,0 +1,112 @@
+name: Release Windows app
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease:
+        description: "Mark as prerelease?"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Windows EXE
+        run: |
+          pyinstaller --noconfirm --windowed ^
+            --name "GLE Editor" ^
+            --icon icon.ico ^
+            gle_launcher.py
+
+      - name: Zip EXE
+        run: |
+          powershell Compress-Archive -Path "dist\GLE Editor" -DestinationPath "GLE-Editor-Windows.zip"
+
+      # Install Inno Setup
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup -y
+
+      # Create installer script
+      - name: Create installer script
+        run: |
+          echo [Setup] > installer.iss
+          echo AppName=GLE Editor >> installer.iss
+          echo AppVersion=1.0 >> installer.iss
+          echo DefaultDirName={pf}\GLE Editor >> installer.iss
+          echo DefaultGroupName=GLE Editor >> installer.iss
+          echo OutputDir=. >> installer.iss
+          echo OutputBaseFilename=GLE-Editor-Installer >> installer.iss
+          echo Compression=lzma >> installer.iss
+          echo SolidCompression=yes >> installer.iss
+          echo >> installer.iss
+          echo [Files] >> installer.iss
+          echo Source: "dist\GLE Editor\*"; DestDir: "{app}"; Flags: recursesubdirs >> installer.iss
+          echo >> installer.iss
+          echo [Icons] >> installer.iss
+          echo Name: "{group}\GLE Editor"; Filename: "{app}\GLE Editor.exe" >> installer.iss
+
+      - name: Build installer
+        run: |
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Compute version
+        id: version
+        run: |
+          python - <<'PY'
+          import subprocess, re
+          tags = subprocess.check_output(["git","tag","--list","v*"], text=True).split()
+          versions = []
+          for t in tags:
+              m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", t)
+              if m:
+                  versions.append(tuple(map(int, m.groups())))
+          if versions:
+              major, minor, patch = max(versions)
+              patch += 1
+          else:
+              major, minor, patch = 1, 0, 0
+          print(f"tag=v{major}.{minor}.{patch}")
+          PY
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          $tag = "${{ steps.version.outputs.tag }}"
+          if (-not $tag) { $tag = "v1.0.0" }
+
+          $args = ""
+          if ("${{ inputs.prerelease }}" -eq "true") {
+            $args = "--prerelease"
+          }
+
+          gh release create $tag `
+            "GLE-Editor-Windows.zip" `
+            "GLE-Editor-Installer.exe" `
+            --title "GLE Editor $tag" `
+            --notes "Windows build" `
+            $args
