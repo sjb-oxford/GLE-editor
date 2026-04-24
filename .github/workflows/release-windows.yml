@@ -35,10 +35,7 @@ jobs:
 
       - name: Build Windows EXE
         run: |
-          pyinstaller --noconfirm --windowed ^
-            --name "GLE Editor" ^
-            --icon icon.ico ^
-            gle_launcher.py
+          pyinstaller --noconfirm --windowed --name "GLE Editor" --icon icon.ico gle_launcher.py
 
       - name: Zip EXE
         run: |
