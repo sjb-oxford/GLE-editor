@@ -77,22 +77,6 @@ jobs:
         id: version
         shell: bash
         run: |
-          tags=$(git tag -l "v*")   
-
-          if [ -z "$tags" ]; then
-            echo "tag=v1.0.0" >> "$GITHUB_OUTPUT"
-          else
-            latest=$(echo "$tags" | sort -V | tail -n 1)
-            version=${latest#v}
-            IFS='.' read -r major minor patch <<< "$version"
-            patch=$((patch + 1))
-            echo "tag=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Compute next version tag
-        id: version
-        shell: bash
-        run: |
           tags=$(git tag -l "v*")
           if [ -z "$tags" ]; then
             echo "tag=v1.0.0" >> $GITHUB_OUTPUT
@@ -103,14 +87,6 @@ jobs:
             patch=$((patch + 1))
             echo "tag=v$major.$minor.$patch" >> $GITHUB_OUTPUT
           fi
-          if versions:
-              major, minor, patch = max(versions)
-              patch += 1
-          else:
-              major, minor, patch = 1, 0, 0
-
-          next_tag = f"v{major}.{minor}.{patch}"
-          print(f"tag={next_tag}")
 
       - name: Create GitHub Release
         env:
