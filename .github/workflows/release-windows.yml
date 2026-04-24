@@ -51,23 +51,21 @@ jobs:
       - name: Create installer script
         shell: pwsh
         run: |
-          @"
-[Setup]
-AppName=GLE Editor
-AppVersion=1.0
-DefaultDirName={pf}\GLE Editor
-DefaultGroupName=GLE Editor
-OutputDir=.
-OutputBaseFilename=GLE-Editor-Installer
-Compression=lzma
-SolidCompression=yes
-
-[Files]
-Source: "dist\GLE-Editor\*"; DestDir: "{app}"; Flags: recursesubdirs
-
-[Icons]
-Name: "{group}\GLE Editor"; Filename: "{app}\GLE-Editor.exe"
-"@ | Out-File -Encoding ASCII installer.iss
+          Set-Content installer.iss "[Setup]"
+          Add-Content installer.iss "AppName=GLE Editor"
+          Add-Content installer.iss "AppVersion=1.0"
+          Add-Content installer.iss "DefaultDirName={pf}\GLE Editor"
+          Add-Content installer.iss "DefaultGroupName=GLE Editor"
+          Add-Content installer.iss "OutputDir=."
+          Add-Content installer.iss "OutputBaseFilename=GLE-Editor-Installer"
+          Add-Content installer.iss "Compression=lzma"
+          Add-Content installer.iss "SolidCompression=yes"
+          Add-Content installer.iss ""
+          Add-Content installer.iss "[Files]"
+          Add-Content installer.iss "Source: ""dist\GLE-Editor\*""; DestDir: ""{app}""; Flags: recursesubdirs"
+          Add-Content installer.iss ""
+          Add-Content installer.iss "[Icons]"
+          Add-Content installer.iss "Name: ""{group}\GLE Editor""; Filename: ""{app}\GLE-Editor.exe"""
 
       - name: Build installer
         shell: pwsh
