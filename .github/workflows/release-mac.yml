@@ -49,19 +49,26 @@ jobs:
           ditto -c -k --keepParent "dist/GLE Editor.app" "GLE-Editor-macOS.zip"
 
       - name: Create GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          args=()
+          tag=$(git describe --tags --abbrev=0)
+
           if [ "$PRERELEASE" = "true" ]; then
-            args+=(--prerelease)
+            gh release create "$tag" \
+              "GLE-Editor-macOS.zip" \
+              --title "GLE Editor $tag" \
+              --notes "Automated release from commit ${{ github.sha }}" \
+              --target "${{ github.sha }}" \
+              --prerelease
+          else
+            gh release create "$tag" \
+              "GLE-Editor-macOS.zip" \
+              --title "GLE Editor $tag" \
+              --notes "Automated release from commit ${{ github.sha }}" \
+              --target "${{ github.sha }}"
           fi
 
-	  $tag = git describe --tags --abbrev=0
-          gh release create $tag \
-            "GLE-Editor-macOS.zip" \
-            --title "GLE Editor $tag" \
-            --notes "Automated release from commit ${{ github.sha }}" \
-            --target "${{ github.sha }}" \
-            "${args[@]}"
+
