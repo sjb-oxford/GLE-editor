@@ -78,19 +78,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = git describe --tags --abbrev=0
-          if (-not $tag) { $tag = "v1.0.0" }
 
-          if ("${{ inputs.prerelease }}" -eq "true") {
-            gh release upload $tag `
-              "GLE-Editor-Windows.zip" `
-              "GLE-Editor-Installer.exe" `
-              --title "GLE Editor $tag" `
-              --notes "Windows build" `
-              --prerelease
-          } else {
-            gh release upload $tag `
-              "GLE-Editor-Windows.zip" `
-              "GLE-Editor-Installer.exe" `
-              --title "GLE Editor $tag" `
-              --notes "Windows build"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "GLE Editor $tag" --notes "Windows build"
           }
+	  
+          gh release upload $tag `
+            "GLE-Editor-Windows.zip" `
+            "GLE-Editor-Installer.exe" `
+            --clobber
+
+
+
+
+
