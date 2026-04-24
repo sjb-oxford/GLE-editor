@@ -38,8 +38,7 @@ jobs:
 
       - name: Build mac app
         run: |
-          pyinstaller --noconfirm --windowed --name "GLE Editor" --icon icon.icns \
-            gle_launcher.py
+          pyinstaller --noconfirm --windowed --name "GLE Editor" --icon icon.icns gle_launcher.py
 
 
 
