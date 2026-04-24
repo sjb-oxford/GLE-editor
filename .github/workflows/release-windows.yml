@@ -22,6 +22,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch tags
+        run: git fetch --tags --force
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -35,57 +38,67 @@ jobs:
 
       - name: Build Windows EXE
         run: |
-          pyinstaller --noconfirm --windowed --name "GLE-Editor" --icon icon.ico gle_launcher.py
+          pyinstaller --noconfirm --windowed --name GLE-Editor --icon icon.ico gle-editor.py
 
       - name: Zip EXE
         run: |
           powershell Compress-Archive -Path "dist\GLE-Editor" -DestinationPath "GLE-Editor-Windows.zip"
 
-      # Install Inno Setup
       - name: Install Inno Setup
         run: |
           choco install innosetup -y
 
-      # Create installer script
       - name: Create installer script
         run: |
-          echo [Setup] > installer.iss
-          echo AppName=GLE-Editor >> installer.iss
-          echo AppVersion=1.0 >> installer.iss
-          echo DefaultDirName={pf}\GLE-Editor >> installer.iss
-          echo DefaultGroupName=GLE-Editor >> installer.iss
-          echo OutputDir=. >> installer.iss
-          echo OutputBaseFilename=GLE-Editor-Installer >> installer.iss
-          echo Compression=lzma >> installer.iss
-          echo SolidCompression=yes >> installer.iss
-          echo >> installer.iss
-          echo [Files] >> installer.iss
-          echo Source: "dist\GLE-Editor\*"; DestDir: "{app}"; Flags: recursesubdirs >> installer.iss
-          echo >> installer.iss
-          echo [Icons] >> installer.iss
-          echo Name: "{group}\GLE-Editor"; Filename: "{app}\GLE-Editor.exe" >> installer.iss
+          @"
+[Setup]
+AppName=GLE Editor
+AppVersion=1.0
+DefaultDirName={pf}\GLE Editor
+DefaultGroupName=GLE Editor
+OutputDir=.
+OutputBaseFilename=GLE-Editor-Installer
+Compression=lzma
+SolidCompression=yes
+
+[Files]
+Source: "dist\GLE-Editor\*"; DestDir: "{app}"; Flags: recursesubdirs
+
+[Icons]
+Name: "{group}\GLE Editor"; Filename: "{app}\GLE-Editor.exe"
+"@ | Out-File -Encoding ASCII installer.iss
 
       - name: Build installer
         run: |
           "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 
-      - name: Compute version
+      - name: Compute next version tag
         id: version
         run: |
           python - <<'PY'
-          import subprocess, re
-          tags = subprocess.check_output(["git","tag","--list","v*"], text=True).split()
+          import subprocess, re, os
+
+          tags = subprocess.check_output(
+              ["git", "tag", "--list", "v*"],
+              text=True
+          ).split()
+
           versions = []
           for t in tags:
               m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", t)
               if m:
                   versions.append(tuple(map(int, m.groups())))
+
           if versions:
               major, minor, patch = max(versions)
               patch += 1
           else:
               major, minor, patch = 1, 0, 0
-          print(f"tag=v{major}.{minor}.{patch}")
+
+          next_tag = f"v{major}.{minor}.{patch}"
+          print(f"tag={next_tag}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"tag={next_tag}\n")
           PY
 
       - name: Create GitHub Release
@@ -104,6 +117,6 @@ jobs:
           gh release create $tag `
             "GLE-Editor-Windows.zip" `
             "GLE-Editor-Installer.exe" `
-            --title "GLE-Editor $tag" `
+            --title "GLE Editor $tag" `
             --notes "Windows build" `
             $args
