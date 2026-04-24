@@ -48,38 +48,6 @@ jobs:
         run: |
           ditto -c -k --keepParent "dist/GLE Editor.app" "GLE-Editor-macOS.zip"
 
-      - name: Compute next version tag
-        id: version
-        env:
-          GITHUB_OUTPUT: ${{ github.output }}
-        run: |
-          python - <<'PY'
-          import os
-          import re
-          import subprocess
-
-          tags = subprocess.check_output(
-              ["git", "tag", "--list", "v*"],
-              text=True
-          ).split()
-
-          versions = []
-          for tag in tags:
-              m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", tag.strip())
-              if m:
-                  versions.append(tuple(map(int, m.groups())))
-
-          if versions:
-              major, minor, patch = max(versions)
-              patch += 1
-          else:
-              major, minor, patch = 1, 0, 0
-
-          next_tag = f"v{major}.{minor}.{patch}"
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-              f.write(f"tag={next_tag}\n")
-          PY
-
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -90,9 +58,10 @@ jobs:
             args+=(--prerelease)
           fi
 
-          gh release create "${{ steps.version.outputs.tag }}" \
+	  $tag = git describe --tags --abbrev=0
+          gh release create $tag \
             "GLE-Editor-macOS.zip" \
-            --title "GLE Editor ${{ steps.version.outputs.tag }}" \
+            --title "GLE Editor $tag" \
             --notes "Automated release from commit ${{ github.sha }}" \
             --target "${{ github.sha }}" \
             "${args[@]}"

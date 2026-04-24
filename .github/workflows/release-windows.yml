@@ -72,38 +72,23 @@ jobs:
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer.iss"
 
-      - name: Compute next version tag
-        id: version
-        shell: bash
-        run: |
-          tags=$(git tag -l "v*")
-          if [ -z "$tags" ]; then
-            echo "tag=v1.0.0" >> "$GITHUB_OUTPUT"
-          else
-            latest=$(echo "$tags" | sort -V | tail -n 1)
-            version=${latest#v}
-            IFS='.' read -r major minor patch <<< "$version"
-            patch=$((patch + 1))
-            echo "tag=v$major.$minor.$patch" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create GitHub Release
+      - name: Upload to GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "${{ steps.version.outputs.tag }}"
+          $tag = git describe --tags --abbrev=0
           if (-not $tag) { $tag = "v1.0.0" }
 
           if ("${{ inputs.prerelease }}" -eq "true") {
-            gh release create $tag `
+            gh release upload $tag `
               "GLE-Editor-Windows.zip" `
               "GLE-Editor-Installer.exe" `
               --title "GLE Editor $tag" `
               --notes "Windows build" `
               --prerelease
           } else {
-            gh release create $tag `
+            gh release upload $tag `
               "GLE-Editor-Windows.zip" `
               "GLE-Editor-Installer.exe" `
               --title "GLE Editor $tag" `
