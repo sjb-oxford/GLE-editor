@@ -74,20 +74,18 @@ Name: "{group}\GLE Editor"; Filename: "{app}\GLE-Editor.exe"
 
       - name: Compute next version tag
         id: version
+        shell: bash
         run: |
-          python - <<'PY'
-          import subprocess, re, os
-
-          tags = subprocess.check_output(
-              ["git", "tag", "--list", "v*"],
-              text=True
-          ).split()
-
-          versions = []
-          for t in tags:
-              m = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", t)
-              if m:
-                  versions.append(tuple(map(int, m.groups())))
+          tags=$(git tag -l "v*")
+          if [ -z "$tags" ]; then
+            echo "tag=v1.0.0" >> $GITHUB_OUTPUT
+          else
+            latest=$(echo "$tags" | sort -V | tail -n 1)
+            version=${latest#v}
+            IFS='.' read -r major minor patch <<< "$version"
+            patch=$((patch + 1))
+            echo "tag=v$major.$minor.$patch" >> $GITHUB_OUTPUT
+          fi
 
           if versions:
               major, minor, patch = max(versions)
@@ -97,9 +95,6 @@ Name: "{group}\GLE Editor"; Filename: "{app}\GLE-Editor.exe"
 
           next_tag = f"v{major}.{minor}.{patch}"
           print(f"tag={next_tag}")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"tag={next_tag}\n")
-          PY
 
       - name: Create GitHub Release
         env:
