@@ -69,8 +69,9 @@ jobs:
           "@ | Out-File -Encoding ASCII installer.iss
 
       - name: Build installer
+        shell: pwsh
         run: |
-          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer.iss"
 
       - name: Compute next version tag
         id: version
