@@ -58,6 +58,19 @@ ABOUT_TEXT = (
 
 COMMON_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
 
+# Common locations where pdflatex / TeX Live binaries live on macOS
+TEX_BIN_DIRS = [
+    "/Library/TeX/texbin",                         # MacTeX universal symlink
+    "/usr/local/texlive/2024/bin/universal-darwin",
+    "/usr/local/texlive/2023/bin/universal-darwin",
+    "/usr/local/texlive/2022/bin/universal-darwin",
+    "/usr/local/texlive/2024/bin/x86_64-darwin",
+    "/usr/local/texlive/2023/bin/x86_64-darwin",
+    "/usr/local/texlive/2022/bin/x86_64-darwin",
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+]
+
 
 def _resource_search_dirs() -> list[Path]:
     dirs: list[Path] = []
@@ -1801,6 +1814,29 @@ class GleApp(QMainWindow):
 
     # ── GLE runner ────────────────────────────────────────────────────────────
 
+    def _build_subprocess_env(self) -> dict[str, str]:
+        """Return an env dict with GLE and TeX binary directories prepended to PATH."""
+        env = os.environ.copy()
+        path_entries: list[str] = []
+
+        # GLE's own directory
+        if self._gle_executable:
+            path_entries.append(str(Path(self._gle_executable).parent))
+
+        # Common tool dirs (includes homebrew, /usr/local/bin, etc.)
+        path_entries.extend(COMMON_BIN_DIRS)
+
+        # TeX Live / MacTeX dirs so GLE can invoke pdflatex
+        path_entries.extend(TEX_BIN_DIRS)
+
+        # Preserve whatever PATH was already set
+        current_path = env.get("PATH", "")
+        if current_path:
+            path_entries.append(current_path)
+
+        env["PATH"] = ":".join(dict.fromkeys(path_entries))
+        return env
+
     def run_gle(self) -> None:
         if self._current_path is None:
             QMessageBox.warning(self, "No file",
@@ -1820,23 +1856,13 @@ class GleApp(QMainWindow):
         self.status_label.setText("Running GLE…")
         QApplication.processEvents()
 
-        env = os.environ.copy()
-        path_entries = []
-        if self._gle_executable:
-            path_entries.append(str(Path(self._gle_executable).parent))
-        path_entries.extend(COMMON_BIN_DIRS)
-        current_path = env.get("PATH", "")
-        if current_path:
-            path_entries.append(current_path)
-        env["PATH"] = ":".join(dict.fromkeys(path_entries))
-
         try:
             result = subprocess.run(
                 [self._gle_executable, "-device", "pdf", str(self._current_path)],
                 capture_output=True,
                 text=True,
                 cwd=str(self._current_path.parent),
-                env=env,
+                env=self._build_subprocess_env(),
             )
         except (FileNotFoundError, OSError) as e:
             QMessageBox.critical(
@@ -1894,6 +1920,7 @@ class GleApp(QMainWindow):
                 capture_output=True,
                 text=True,
                 cwd=str(self._current_path.parent),
+                env=self._build_subprocess_env(),
             )
         except (FileNotFoundError, OSError) as e:
             QMessageBox.critical(
