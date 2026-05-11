@@ -58,7 +58,7 @@ ABOUT_TEXT = (
     "University of Oxford\n"
     "Department of Physics\n"
     f"Version {APP_VERSION}\n"
-    "April 2026"
+    "May 2026"
 )
 
 COMMON_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
@@ -294,6 +294,10 @@ def _load_about_icon_pixmap(size: int) -> QPixmap:
     relative_candidates = [
         Path("assets/icon.png"),
         Path("icon.png"),
+        Path("icon.icns"),
+        Path("icon.iconset/icon_512x512.png"),
+        Path("icon.iconset/icon_256x256.png"),
+        Path("icon.iconset/icon_128x128.png"),
     ]
     for base in _resource_search_dirs():
         for rel in relative_candidates:
@@ -307,7 +311,9 @@ def _load_about_icon_pixmap(size: int) -> QPixmap:
                         Qt.AspectRatioMode.KeepAspectRatio,
                         Qt.TransformationMode.SmoothTransformation,
                     )
-    return QPixmap()
+
+    # Final fallback: reuse the generic app icon search logic.
+    return _load_icon_pixmap(size)
 
 
 def _build_splash_pixmap() -> QPixmap:
@@ -562,7 +568,7 @@ class PdfViewer(QGraphicsView):
             | QPainter.RenderHint.TextAntialiasing
         )
         self._zoom = 1.5
-        self._grid_visible = False
+        self._grid_mode = 0  # 0=off, 1=1cm grid, 2=1cm+5cm overlay grid
         self._grid_items: list = []
         self._click_marker_items: list = []
         self._drag_marker_items: list = []
@@ -618,7 +624,7 @@ class PdfViewer(QGraphicsView):
             self._scene.addPixmap(pixmap)
             self._scene.setSceneRect(QRectF(pixmap.rect()))
             self._pixmap_size = (pixmap.width(), pixmap.height())
-            if self._grid_visible:
+            if self._grid_mode != 0:
                 self._draw_grid()
             self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
         except Exception as e:
@@ -1202,8 +1208,12 @@ class PdfViewer(QGraphicsView):
             self.setCursor(Qt.CursorShape.ArrowCursor)
 
     def set_grid(self, visible: bool) -> None:
-        self._grid_visible = visible
-        if visible:
+        # Backward-compatible bridge for older call sites.
+        self.set_grid_mode(1 if visible else 0)
+
+    def set_grid_mode(self, mode: int) -> None:
+        self._grid_mode = max(0, min(2, int(mode)))
+        if self._grid_mode != 0:
             self._draw_grid()
         else:
             self._clear_grid()
@@ -1285,21 +1295,34 @@ class PdfViewer(QGraphicsView):
         w, h = self._pixmap_size
         if w == 0 or h == 0:
             return
-        # 1 cm = 28.3465 PDF points; each point is rendered as self._zoom pixels
-        step = 28.3465 * self._zoom
-        pen = QPen(QColor(30, 80, 200, 90))   # semi-transparent blue
-        pen.setCosmetic(True)                  # 1 px wide regardless of zoom
-        pen.setWidth(1)
+
+        if self._grid_mode >= 1:
+            self._draw_grid_layer(step_cm=1.0, color=QColor(30, 80, 200, 90), width=1, z_value=10)
+
+        if self._grid_mode >= 2:
+            self._draw_grid_layer(step_cm=5.0, color=QColor(30, 80, 200, 150), width=2, z_value=11)
+
+    def _draw_grid_layer(self, step_cm: float, color: QColor, width: int, z_value: float) -> None:
+        w, h = self._pixmap_size
+        if w == 0 or h == 0:
+            return
+
+        step = step_cm * 28.3465 * self._zoom
+        pen = QPen(color)
+        pen.setCosmetic(True)
+        pen.setWidth(width)
+
         x = step
         while x < w:
             item = self._scene.addLine(x, 0, x, h, pen)
-            item.setZValue(10)
+            item.setZValue(z_value)
             self._grid_items.append(item)
             x += step
+
         y = step
         while y < h:
             item = self._scene.addLine(0, y, w, y, pen)
-            item.setZValue(10)
+            item.setZValue(z_value)
             self._grid_items.append(item)
             y += step
 
@@ -1323,6 +1346,8 @@ class GleApp(QMainWindow):
         self._gle_executable: str | None = None
         self._line_spin_syncing = False
         self.fillcolor = "grey20"
+        self._grid_mode = 0
+        self._about_popup: AboutPopup | None = None
 
         # Autosave 1 second after the last keystroke
         self._autosave_timer = QTimer(self)
@@ -1426,13 +1451,10 @@ class GleApp(QMainWindow):
         btn_eps.setStyleSheet("background-color: #90ee90;")  # light green
         bar.addWidget(btn_eps)
 
-        btn_grid = QPushButton("Grid")
-        btn_grid.setCheckable(True)
-        btn_grid.setStyleSheet(
-            "QPushButton { background-color: #d8b4fe; }"
-            "QPushButton:checked { background-color: #7c3aed; color: white; }"
-        )
-        bar.addWidget(btn_grid)
+        self.btn_grid = QPushButton("Grid: Off")
+        self.btn_grid.clicked.connect(self.cycle_grid_mode)
+        self.btn_grid.setStyleSheet("QPushButton { background-color: #d8b4fe; color: #111; }")
+        bar.addWidget(self.btn_grid)
 
         btn_add_element = QPushButton("Add element")
         btn_add_element.clicked.connect(self.toggle_element_bar)
@@ -1697,7 +1719,6 @@ class GleApp(QMainWindow):
         self.pdf_viewer = PdfViewer()
         splitter.addWidget(self.pdf_viewer)
 
-        btn_grid.toggled.connect(self.pdf_viewer.set_grid)
         self.btn_amove.toggled.connect(self.pdf_viewer.set_amove)
         self.pdf_viewer.amove_pressed.connect(self.insert_amove)
         self.btn_aline.toggled.connect(self.pdf_viewer.set_aline)
@@ -1727,7 +1748,25 @@ class GleApp(QMainWindow):
         splitter.setSizes([580, 720])
         root.addWidget(splitter, 1)
 
+        self._apply_grid_mode()
         self._sync_line_spin_from_cursor()
+
+    def cycle_grid_mode(self) -> None:
+        self._grid_mode = (self._grid_mode + 1) % 3
+        self._apply_grid_mode()
+
+    def _apply_grid_mode(self) -> None:
+        self.pdf_viewer.set_grid_mode(self._grid_mode)
+
+        if self._grid_mode == 0:
+            self.btn_grid.setText("Grid: Off")
+            self.btn_grid.setStyleSheet("QPushButton { background-color: #d8b4fe; color: #111; }")
+        elif self._grid_mode == 1:
+            self.btn_grid.setText("Grid: 1cm")
+            self.btn_grid.setStyleSheet("QPushButton { background-color: #9c6ade; color: white; }")
+        else:
+            self.btn_grid.setText("Grid: 1cm+5cm")
+            self.btn_grid.setStyleSheet("QPushButton { background-color: #5f2ea8; color: white; }")
 
     # ── GLE executable initialization ──────────────────────────────────────────
 
@@ -2156,6 +2195,11 @@ class GleApp(QMainWindow):
         self.close()
 
     def show_about(self) -> None:
+        if self._about_popup is not None and self._about_popup.isVisible():
+            self._about_popup.close()
+            self._about_popup = None
+            return
+
         self._about_popup = AboutPopup(self, app=self)
         self._about_popup.adjustSize()
         center = self.geometry().center()
