@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QInputDialog,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -74,6 +75,8 @@ TEX_BIN_DIRS = [
     "/usr/local/bin",
 ]
 
+GLE_KEYWORDS_XML_SOURCE: Path | None = None
+
 
 class GleTextEdit(QPlainTextEdit):
     def __init__(self, parent=None) -> None:
@@ -103,22 +106,38 @@ class GleTextEdit(QPlainTextEdit):
 
 def _load_gle_keywords() -> dict[str, list[str]]:
     """Parse assets/gle_npp.xml and return keyword lists keyed by Words1/Words2/Words3."""
-    xml_path = Path(__file__).resolve().parent / "assets" / "gle_npp.xml"
-    if not xml_path.exists():
-        return {}
-    try:
-        tree = ET.parse(str(xml_path))
-        root = tree.getroot()
-        result: dict[str, list[str]] = {}
-        for kw in root.iter("Keywords"):
-            name = kw.get("name", "")
-            text = (kw.text or "").replace("\r\n", "\n").replace("\r", "\n")
-            words = [w.strip() for w in text.split("\n") if w.strip()]
-            if words:
-                result[name] = words
-        return result
-    except Exception:
-        return {}
+    global GLE_KEYWORDS_XML_SOURCE
+    GLE_KEYWORDS_XML_SOURCE = None
+
+    candidate_rel_paths = [
+        Path("assets/gle_npp.xml"),
+        Path("assets/gle-npp.xml"),
+        Path("gle_npp.xml"),
+        Path("gle-npp.xml"),
+    ]
+
+    for base in _resource_search_dirs():
+        for rel in candidate_rel_paths:
+            xml_path = base / rel
+            if not xml_path.exists():
+                continue
+            try:
+                tree = ET.parse(str(xml_path))
+                root = tree.getroot()
+                result: dict[str, list[str]] = {}
+                for kw in root.iter("Keywords"):
+                    name = kw.get("name", "")
+                    text = (kw.text or "").replace("\r\n", "\n").replace("\r", "\n")
+                    words = [w.strip() for w in text.split("\n") if w.strip()]
+                    if words:
+                        result[name] = words
+                if result:
+                    GLE_KEYWORDS_XML_SOURCE = xml_path
+                    return result
+            except Exception:
+                continue
+
+    return {}
 
 
 class GleSyntaxHighlighter(QSyntaxHighlighter):
@@ -1252,6 +1271,7 @@ class GleApp(QMainWindow):
         self._autosave_dirty = False
         self._gle_executable: str | None = None
         self._line_spin_syncing = False
+        self.fillcolor = "grey20"
 
         # Autosave 1 second after the last keystroke
         self._autosave_timer = QTimer(self)
@@ -1260,10 +1280,22 @@ class GleApp(QMainWindow):
         self._autosave_timer.timeout.connect(self._autosave)
 
         self._build_ui()
+        self._apply_syntax_status_hint()
         self._initialize_gle_path()
         self._restore_state()
         self.editor.moveCursor(QTextCursor.MoveOperation.End)
         self.editor.setFocus()
+
+    def _apply_syntax_status_hint(self) -> None:
+        if GLE_KEYWORDS_XML_SOURCE is not None:
+            hint = f"GLE syntax XML loaded: {GLE_KEYWORDS_XML_SOURCE.name}"
+            detail = str(GLE_KEYWORDS_XML_SOURCE)
+        else:
+            hint = "GLE syntax XML not found"
+            detail = "Place gle_npp.xml (or gle-npp.xml) in assets/ or app root."
+
+        self.status_label.setText(hint)
+        self.status_label.setToolTip(detail)
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -1518,6 +1550,14 @@ class GleApp(QMainWindow):
             "QPushButton:pressed { background-color: #f4b183; }"
         )
         eb.addWidget(self.btn_set_color)
+
+        self.btn_fill = QPushButton("Fill")
+        self.btn_fill.clicked.connect(self.choose_fill)
+        self.btn_fill.setStyleSheet(
+            "QPushButton { background-color: #ffe4a1; }"
+            "QPushButton:pressed { background-color: #f3cd6d; }"
+        )
+        eb.addWidget(self.btn_fill)
 
         self.text_input = QLineEdit()
         self.text_input.setPlaceholderText("Enter text")
@@ -2115,7 +2155,7 @@ class GleApp(QMainWindow):
 
     def insert_circle_fill(self, x1: float, y1: float, x2: float, y2: float) -> None:
         radius = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
-        text = f"\namove {x1:.2f} {y1:.2f}\ncircle {radius:.2f} fill grey20\n"
+        text = f"\namove {x1:.2f} {y1:.2f}\ncircle {radius:.2f} fill {self.fillcolor}\n"
         cursor = self.editor.textCursor()
         cursor.insertText(text)
         self.editor.setTextCursor(cursor)
@@ -2135,7 +2175,7 @@ class GleApp(QMainWindow):
     def insert_ellipse_fill(self, x1: float, y1: float, x2: float, y2: float) -> None:
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
-        text = f"\namove {x1:.2f} {y1:.2f}\nellipse {dx:.2f} {dy:.2f} fill grey20\n"
+        text = f"\namove {x1:.2f} {y1:.2f}\nellipse {dx:.2f} {dy:.2f} fill {self.fillcolor}\n"
         cursor = self.editor.textCursor()
         cursor.insertText(text)
         self.editor.setTextCursor(cursor)
@@ -2146,7 +2186,7 @@ class GleApp(QMainWindow):
         # Insert amove and box with fill option on their own lines
         dx = x2 - x1
         dy = y2 - y1
-        text = f"\namove {x1:.2f} {y1:.2f}\nbox {dx:.2f} {dy:.2f} fill grey20\n"
+        text = f"\namove {x1:.2f} {y1:.2f}\nbox {dx:.2f} {dy:.2f} fill {self.fillcolor}\n"
         cursor = self.editor.textCursor()
         cursor.insertText(text)
         self.editor.setTextCursor(cursor)
@@ -2177,6 +2217,30 @@ class GleApp(QMainWindow):
         cursor.insertText(f"set color {hex_code}\n")
         self.editor.setTextCursor(cursor)
         self.editor.setFocus()
+
+    def choose_fill(self) -> None:
+        options = ["black", "white", "grey20", "grey5", "colour"]
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Choose fill",
+            "Fill colour:",
+            options,
+            options.index(self.fillcolor) if self.fillcolor in options else 2,
+            False,
+        )
+        if not ok:
+            return
+
+        chosen = choice.strip().lower()
+        if chosen in {"colour", "color"}:
+            color = QColorDialog.getColor(QColor("#ADFF2F"), self, "Select fill color")
+            if not color.isValid():
+                return
+            self.fillcolor = f"#{color.red():02X}{color.green():02X}{color.blue():02X}"
+        else:
+            self.fillcolor = chosen
+
+        self.status_label.setText(f"Fill set to {self.fillcolor}")
 
     def insert_arrow_end(self, x1: float, y1: float, x2: float, y2: float) -> None:
         # Insert exactly like aline, with "arrow end" suffix
