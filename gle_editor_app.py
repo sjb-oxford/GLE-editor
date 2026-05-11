@@ -15,17 +15,20 @@ Run:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PySide6.QtCore import QRectF, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QTextCursor
+from PySide6.QtGui import QColor, QFont, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QSyntaxHighlighter, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QColorDialog,
     QFileDialog,
     QGraphicsScene,
     QGraphicsView,
@@ -70,6 +73,109 @@ TEX_BIN_DIRS = [
     "/opt/homebrew/bin",
     "/usr/local/bin",
 ]
+
+
+class GleTextEdit(QPlainTextEdit):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._kill_to_eol_shortcut = QShortcut(QKeySequence("Meta+K"), self)
+        self._kill_to_eol_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self._kill_to_eol_shortcut.activated.connect(self.kill_to_end_of_line)
+
+    def kill_to_end_of_line(self) -> None:
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            cursor.removeSelectedText()
+        else:
+            cursor.movePosition(
+                QTextCursor.MoveOperation.EndOfBlock,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+            cursor.removeSelectedText()
+        self.setTextCursor(cursor)
+
+    def keyPressEvent(self, event) -> None:
+        if event.modifiers() & Qt.KeyboardModifier.MetaModifier and event.key() == Qt.Key.Key_K:
+            self.kill_to_end_of_line()
+            return
+        super().keyPressEvent(event)
+
+
+def _load_gle_keywords() -> dict[str, list[str]]:
+    """Parse assets/gle_npp.xml and return keyword lists keyed by Words1/Words2/Words3."""
+    xml_path = Path(__file__).resolve().parent / "assets" / "gle_npp.xml"
+    if not xml_path.exists():
+        return {}
+    try:
+        tree = ET.parse(str(xml_path))
+        root = tree.getroot()
+        result: dict[str, list[str]] = {}
+        for kw in root.iter("Keywords"):
+            name = kw.get("name", "")
+            text = (kw.text or "").replace("\r\n", "\n").replace("\r", "\n")
+            words = [w.strip() for w in text.split("\n") if w.strip()]
+            if words:
+                result[name] = words
+        return result
+    except Exception:
+        return {}
+
+
+class GleSyntaxHighlighter(QSyntaxHighlighter):
+    """Syntax highlighter for GLE files based on gle_npp.xml keyword definitions."""
+
+    def __init__(self, document) -> None:
+        super().__init__(document)
+        self._rules: list[tuple[re.Pattern, QTextCharFormat]] = []
+        self._build_rules()
+
+    @staticmethod
+    def _fmt(color_hex: str, bold: bool = False, italic: bool = False) -> QTextCharFormat:
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(f"#{color_hex}"))
+        if bold:
+            fmt.setFontWeight(QFont.Weight.Bold)
+        if italic:
+            fmt.setFontItalic(True)
+        return fmt
+
+    def _build_rules(self) -> None:
+        kw = _load_gle_keywords()
+
+        # Quoted strings – purple; matched first so keywords inside strings aren't coloured
+        self._rules.append((
+            re.compile(r'"[^"]*"'),
+            self._fmt("8000FF"),
+        ))
+
+        # Words1 – blue bold (GLE commands)
+        words1 = sorted(set(kw.get("Words1", [])), key=len, reverse=True)
+        if words1:
+            pat = "|".join(r"\b" + re.escape(w) + r"\b" for w in words1)
+            self._rules.append((re.compile(pat, re.IGNORECASE), self._fmt("0000FF", bold=True)))
+
+        # Words2 + Words3 – dark red bold (axis / graph keywords)
+        words23 = sorted(set(kw.get("Words2", []) + kw.get("Words3", [])), key=len, reverse=True)
+        if words23:
+            pat = "|".join(r"\b" + re.escape(w) + r"\b" for w in words23)
+            self._rules.append((re.compile(pat, re.IGNORECASE), self._fmt("800040", bold=True)))
+
+        # Numbers – red
+        self._rules.append((
+            re.compile(r"\b\d+(\.\d+)?([eE][+-]?\d+)?\b"),
+            self._fmt("CC0000"),
+        ))
+
+        # Comments: everything from ! to end of line – green italic (applied last so it wins)
+        self._rules.append((
+            re.compile(r"!.*$"),
+            self._fmt("008000", italic=True),
+        ))
+
+    def highlightBlock(self, text: str) -> None:
+        for pattern, fmt in self._rules:
+            for m in pattern.finditer(text):
+                self.setFormat(m.start(), m.end() - m.start(), fmt)
 
 
 def _resource_search_dirs() -> list[Path]:
@@ -1405,6 +1511,14 @@ class GleApp(QMainWindow):
         )
         eb.addWidget(self.btn_text)
 
+        self.btn_set_color = QPushButton("set color")
+        self.btn_set_color.clicked.connect(self.choose_color)
+        self.btn_set_color.setStyleSheet(
+            "QPushButton { background-color: #ffd6a5; }"
+            "QPushButton:pressed { background-color: #f4b183; }"
+        )
+        eb.addWidget(self.btn_set_color)
+
         self.text_input = QLineEdit()
         self.text_input.setPlaceholderText("Enter text")
         self.text_input.setFixedWidth(220)
@@ -1478,12 +1592,13 @@ class GleApp(QMainWindow):
         # Left (editor) / right (PDF viewer) panels
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        self.editor = QPlainTextEdit()
+        self.editor = GleTextEdit()
         self.editor.setFont(QFont("Courier New", 11))
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.editor.textChanged.connect(self._on_text_changed)
         self.editor.cursorPositionChanged.connect(self._sync_line_spin_from_cursor)
         splitter.addWidget(self.editor)
+        self._highlighter = GleSyntaxHighlighter(self.editor.document())
 
         self.pdf_viewer = PdfViewer()
         splitter.addWidget(self.pdf_viewer)
@@ -2051,6 +2166,17 @@ class GleApp(QMainWindow):
         self.editor.setFocus()
         self.run_gle()
         self.btn_text.setChecked(False)
+
+    def choose_color(self) -> None:
+        color = QColorDialog.getColor(QColor("#ADFF2F"), self, "Select color")
+        if not color.isValid():
+            return
+
+        hex_code = f"#{color.red():02X}{color.green():02X}{color.blue():02X}"
+        cursor = self.editor.textCursor()
+        cursor.insertText(f"set color {hex_code}\n")
+        self.editor.setTextCursor(cursor)
+        self.editor.setFocus()
 
     def insert_arrow_end(self, x1: float, y1: float, x2: float, y2: float) -> None:
         # Insert exactly like aline, with "arrow end" suffix
