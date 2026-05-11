@@ -51,12 +51,13 @@ from PySide6.QtWidgets import (
 
 APP_ORG = "GLE-Editor"
 APP_NAME = "GleEditorApp"
+APP_VERSION = "1.0.12"
 ABOUT_TEXT = (
     "GLE Editor\n"
     "Stephen Blundell\n"
     "University of Oxford\n"
     "Department of Physics\n"
-    "Version 1.0\n"
+    f"Version {APP_VERSION}\n"
     "April 2026"
 )
 
@@ -76,6 +77,32 @@ TEX_BIN_DIRS = [
 ]
 
 GLE_KEYWORDS_XML_SOURCE: Path | None = None
+GLE_KEYWORDS_SOURCE_MODE = "fallback"
+
+
+def _default_gle_keywords() -> dict[str, list[str]]:
+    """Fallback keywords used when gle_npp.xml is unavailable in packaged builds."""
+    return {
+        "Words1": [
+            "add", "aline", "amove", "arc", "arrow", "bar", "begin", "bezier", "box", "cap",
+            "circle", "clip", "closepath", "color", "command", "curve", "data", "define", "dist",
+            "ellipse", "else", "end", "end if", "fill", "font", "for", "from", "graph", "grid",
+            "gsave", "grestore", "hei", "if", "include", "join", "just", "justify", "left", "let",
+            "line", "lstyle", "lwidth", "marker", "max", "min", "name", "next", "off", "on",
+            "origin", "path", "postscript", "radius", "return", "right", "rline", "rmove", "rotate",
+            "save", "scale", "set", "shift", "size", "smooth", "step", "stroke", "table", "text",
+            "then", "title", "to", "translate", "width", "write",
+        ],
+        "Words2": [
+            "xaxis", "xlabels", "xnames", "xplaces", "xsubticks", "xticks", "xtitle",
+            "x2axis", "x2labels", "x2names", "x2places", "x2subticks", "x2ticks", "x2title",
+        ],
+        "Words3": [
+            "yaxis", "ylabels", "ynames", "yplaces", "ysubticks", "yticks", "ytitle",
+            "y2axis", "y2labels", "y2names", "y2places", "y2subticks", "y2ticks", "y2title",
+            "key", "sub",
+        ],
+    }
 
 
 class GleTextEdit(QPlainTextEdit):
@@ -107,7 +134,9 @@ class GleTextEdit(QPlainTextEdit):
 def _load_gle_keywords() -> dict[str, list[str]]:
     """Parse assets/gle_npp.xml and return keyword lists keyed by Words1/Words2/Words3."""
     global GLE_KEYWORDS_XML_SOURCE
+    global GLE_KEYWORDS_SOURCE_MODE
     GLE_KEYWORDS_XML_SOURCE = None
+    GLE_KEYWORDS_SOURCE_MODE = "fallback"
 
     candidate_rel_paths = [
         Path("assets/gle_npp.xml"),
@@ -133,11 +162,13 @@ def _load_gle_keywords() -> dict[str, list[str]]:
                         result[name] = words
                 if result:
                     GLE_KEYWORDS_XML_SOURCE = xml_path
+                    GLE_KEYWORDS_SOURCE_MODE = "xml"
                     return result
             except Exception:
                 continue
 
-    return {}
+    GLE_KEYWORDS_SOURCE_MODE = "fallback"
+    return _default_gle_keywords()
 
 
 class GleSyntaxHighlighter(QSyntaxHighlighter):
@@ -259,6 +290,26 @@ def _load_app_icon() -> QIcon:
     return QIcon(pix)
 
 
+def _load_about_icon_pixmap(size: int) -> QPixmap:
+    relative_candidates = [
+        Path("assets/icon.png"),
+        Path("icon.png"),
+    ]
+    for base in _resource_search_dirs():
+        for rel in relative_candidates:
+            path = base / rel
+            if path.exists():
+                pix = QPixmap(str(path))
+                if not pix.isNull():
+                    return pix.scaled(
+                        size,
+                        size,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+    return QPixmap()
+
+
 def _build_splash_pixmap() -> QPixmap:
     pixmap = QPixmap(520, 220)
     pixmap.fill(QColor("#f4f8ff"))
@@ -302,11 +353,11 @@ class AboutPopup(QWidget):
         layout.setContentsMargins(18, 14, 18, 14)
 
         about_icon = QLabel()
-        about_pix = _load_icon_pixmap(72)
+        about_pix = _load_about_icon_pixmap(216)
         if not about_pix.isNull():
             about_icon.setPixmap(about_pix)
         about_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        about_icon.setFixedHeight(78)
+        about_icon.setFixedHeight(224)
         layout.addWidget(about_icon)
 
         label = QLabel(ABOUT_TEXT)
@@ -1290,6 +1341,9 @@ class GleApp(QMainWindow):
         if GLE_KEYWORDS_XML_SOURCE is not None:
             hint = f"GLE syntax XML loaded: {GLE_KEYWORDS_XML_SOURCE.name}"
             detail = str(GLE_KEYWORDS_XML_SOURCE)
+        elif GLE_KEYWORDS_SOURCE_MODE == "fallback":
+            hint = "GLE syntax XML not found (fallback keywords)"
+            detail = "Using built-in fallback keywords. Place gle_npp.xml (or gle-npp.xml) in assets/ or app root."
         else:
             hint = "GLE syntax XML not found"
             detail = "Place gle_npp.xml (or gle-npp.xml) in assets/ or app root."
