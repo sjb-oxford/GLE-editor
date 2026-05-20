@@ -10,6 +10,8 @@ permissions:
 jobs:
   build:
     runs-on: macos-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
       - name: Check out code
@@ -28,7 +30,12 @@ jobs:
 
       - name: Build mac app
         run: |
-          pyinstaller --noconfirm --windowed --name "GLE Editor" --icon icon.icns gle_launcher.py
+          pyinstaller --noconfirm --windowed --name "GLE Editor" --icon icon.icns \
+            --add-data "icon.iconset:icon.iconset" \
+            --add-data "icon.png:." \
+            --add-data "gle-icon-large.png:." \
+	    --add-data "assets:assets" \
+            gle_launcher.py
 
       - name: Zip the app
         run: |

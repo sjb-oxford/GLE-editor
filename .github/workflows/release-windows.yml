@@ -38,7 +38,7 @@ jobs:
 
       - name: Build Windows EXE
         run: |
-          pyinstaller --noconfirm --windowed --name GLE-Editor --icon icon.ico gle-editor.py
+          pyinstaller --noconfirm --windowed --name GLE-Editor --icon icon.ico --add-data "assets;assets" gle-editor.py
 
       - name: Zip EXE
         run: |
