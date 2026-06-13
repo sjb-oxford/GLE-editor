@@ -23,7 +23,7 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSettings, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRectF, QSettings, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QSyntaxHighlighter, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
@@ -51,14 +51,14 @@ from PySide6.QtWidgets import (
 
 APP_ORG = "GLE-Editor"
 APP_NAME = "GleEditorApp"
-APP_VERSION = "1.0.12"
+APP_VERSION = "1.0.15"
 ABOUT_TEXT = (
     "GLE Editor\n"
     "Stephen Blundell\n"
     "University of Oxford\n"
     "Department of Physics\n"
     f"Version {APP_VERSION}\n"
-    "May 2026"
+    "June 2026"
 )
 
 COMMON_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
@@ -567,7 +567,15 @@ class PdfViewer(QGraphicsView):
             | QPainter.RenderHint.SmoothPixmapTransform
             | QPainter.RenderHint.TextAntialiasing
         )
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.grabGesture(Qt.GestureType.PinchGesture)
         self._zoom = 1.5
+        self._view_zoom = 1.0
+        self._min_view_zoom = 0.25
+        self._max_view_zoom = 8.0
         self._grid_mode = 0  # 0=off, 1=1cm grid, 2=1cm+5cm overlay grid
         self._grid_items: list = []
         self._click_marker_items: list = []
@@ -626,14 +634,126 @@ class PdfViewer(QGraphicsView):
             self._pixmap_size = (pixmap.width(), pixmap.height())
             if self._grid_mode != 0:
                 self._draw_grid()
+            self.resetTransform()
             self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            self.scale(self._view_zoom, self._view_zoom)
         except Exception as e:
             print(f"PDF viewer error: {e}")
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if not self._scene.sceneRect().isEmpty():
+            self.resetTransform()
             self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+            self.scale(self._view_zoom, self._view_zoom)
+
+    def _in_draw_mode(self) -> bool:
+        return any(
+            (
+                self._amove_mode,
+                self._aline_mode,
+                self._box_mode,
+                self._box_fill_mode,
+                self._circle_mode,
+                self._circle_fill_mode,
+                self._ellipse_mode,
+                self._ellipse_fill_mode,
+                self._text_mode,
+                self._arrow_end_mode,
+                self._arrow_start_mode,
+                self._arrow_both_mode,
+            )
+        )
+
+    def _set_view_zoom(self, target_zoom: float, anchor_center: bool = False) -> None:
+        target_zoom = max(self._min_view_zoom, min(target_zoom, self._max_view_zoom))
+        if abs(target_zoom - self._view_zoom) < 1e-9:
+            return
+        factor = target_zoom / self._view_zoom
+        self._view_zoom = target_zoom
+        if anchor_center:
+            self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+            self.scale(factor, factor)
+            self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        else:
+            self.scale(factor, factor)
+
+    def zoom_in(self) -> None:
+        self._set_view_zoom(self._view_zoom * 1.15)
+
+    def zoom_out(self) -> None:
+        self._set_view_zoom(self._view_zoom / 1.15)
+
+    def _pan_by_pixels(self, dx: int, dy: int) -> None:
+        self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() + dx)
+        self.verticalScrollBar().setValue(self.verticalScrollBar().value() + dy)
+
+    def wheelEvent(self, event) -> None:
+        if self._in_draw_mode() or self._scene.sceneRect().isEmpty():
+            super().wheelEvent(event)
+            return
+        delta = event.angleDelta().y()
+        if delta == 0:
+            super().wheelEvent(event)
+            return
+        if delta > 0:
+            self.zoom_in()
+        else:
+            self.zoom_out()
+        event.accept()
+
+    def keyPressEvent(self, event) -> None:
+        key = event.key()
+        if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Up):
+            if key == Qt.Key.Key_Up:
+                self._pan_by_pixels(0, -30)
+            else:
+                self.zoom_in()
+            event.accept()
+            return
+        if key in (Qt.Key.Key_Minus, Qt.Key.Key_Underscore):
+            self.zoom_out()
+            event.accept()
+            return
+        if key == Qt.Key.Key_Down:
+            self._pan_by_pixels(0, 30)
+            event.accept()
+            return
+        if key == Qt.Key.Key_Left:
+            self._pan_by_pixels(-30, 0)
+            event.accept()
+            return
+        if key == Qt.Key.Key_Right:
+            self._pan_by_pixels(30, 0)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _handle_pinch_gesture(self, gesture) -> bool:
+        if self._scene.sceneRect().isEmpty() or self._in_draw_mode():
+            return False
+        factor = float(gesture.scaleFactor())
+        if factor <= 0:
+            return False
+        self._set_view_zoom(self._view_zoom * factor)
+        return True
+
+    def event(self, event) -> bool:
+        if event.type() == QEvent.Type.Gesture:
+            pinch = event.gesture(Qt.GestureType.PinchGesture)
+            if pinch and self._handle_pinch_gesture(pinch):
+                return True
+        elif event.type() == QEvent.Type.NativeGesture:
+            try:
+                gesture_type = event.gestureType()
+                # macOS trackpad pinch reports ZoomNativeGesture with a small delta value
+                if str(gesture_type).endswith("ZoomNativeGesture"):
+                    scale_delta = float(event.value())
+                    self._set_view_zoom(self._view_zoom * (1.0 + scale_delta))
+                    return True
+            except Exception:
+                pass
+        return super().event(event)
 
     def mousePressEvent(self, event) -> None:
         if (
