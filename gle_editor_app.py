@@ -51,7 +51,7 @@ from PySide6.QtWidgets import (
 
 APP_ORG = "GLE-Editor"
 APP_NAME = "GleEditorApp"
-APP_VERSION = "1.0.15"
+APP_VERSION = "1.0.16"
 RECENT_FILES_KEY = "recent_files"
 MAX_RECENT_FILES = 20
 ABOUT_TEXT = (
