@@ -51,7 +51,7 @@ from PySide6.QtWidgets import (
 
 APP_ORG = "GLE-Editor"
 APP_NAME = "GleEditorApp"
-APP_VERSION = "1.0.16"
+APP_VERSION = "1.0.17"
 RECENT_FILES_KEY = "recent_files"
 MAX_RECENT_FILES = 20
 ABOUT_TEXT = (
@@ -353,24 +353,25 @@ class AboutPopup(QWidget):
         self.setStyleSheet(
             "QWidget { background-color: white; border: 1px solid #888; }"
             "QLabel { border: none; }"
-            "QPushButton { border: 1px solid #888; padding: 6px 12px; border-radius: 3px; }"
+            "QPushButton { border: 1px solid #888; padding: 9px 18px; border-radius: 3px; }"
         )
         self._app = app
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setContentsMargins(27, 21, 27, 21)
+        layout.setSpacing(9)
 
         about_icon = QLabel()
-        about_pix = _load_about_icon_pixmap(216)
+        about_pix = _load_about_icon_pixmap(324)
         if not about_pix.isNull():
             about_icon.setPixmap(about_pix)
         about_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        about_icon.setFixedHeight(224)
+        about_icon.setFixedHeight(336)
         layout.addWidget(about_icon)
 
         label = QLabel(ABOUT_TEXT)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setFont(QFont("Helvetica", 11))
+        label.setFont(QFont("Helvetica", 17))
         layout.addWidget(label)
 
         # GLE configuration button
@@ -382,9 +383,17 @@ class AboutPopup(QWidget):
         if app and app._gle_executable:
             info_label = QLabel(f"GLE path: {app._gle_executable}")
             info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            info_label.setFont(QFont("Helvetica", 9))
+            info_label.setFont(QFont("Helvetica", 14))
             info_label.setStyleSheet("color: #666;")
             layout.addWidget(info_label)
+
+        btn_close = QPushButton("Close window")
+        btn_close.clicked.connect(self.close)
+        btn_close.setStyleSheet(
+            "QPushButton { background-color: #c62828; color: white; border-color: #8e0000; }"
+            "QPushButton:pressed { background-color: #8e0000; }"
+        )
+        layout.addWidget(btn_close)
 
     def _configure_gle(self) -> None:
         if self._app:
@@ -1441,12 +1450,12 @@ class PdfViewer(QGraphicsView):
             self._grid_items.append(item)
             x += step
 
-        y = step
-        while y < h:
+        y = h - step
+        while y > 0:
             item = self._scene.addLine(0, y, w, y, pen)
             item.setZValue(z_value)
             self._grid_items.append(item)
-            y += step
+            y -= step
 
 
 # ─────────────────────────────────────────────────────────────────────────────
