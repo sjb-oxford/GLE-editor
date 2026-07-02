@@ -52,6 +52,8 @@ from PySide6.QtWidgets import (
 APP_ORG = "GLE-Editor"
 APP_NAME = "GleEditorApp"
 APP_VERSION = "1.0.15"
+RECENT_FILES_KEY = "recent_files"
+MAX_RECENT_FILES = 20
 ABOUT_TEXT = (
     "GLE Editor\n"
     "Stephen Blundell\n"
@@ -1541,6 +1543,11 @@ class GleApp(QMainWindow):
         btn_load.setStyleSheet("background-color: #add8e6;")  # light blue
         bar.addWidget(btn_load)
 
+        btn_load_recent = QPushButton("Load Recent")
+        btn_load_recent.clicked.connect(self.load_recent_file)
+        btn_load_recent.setStyleSheet("background-color: #7fffd4;")  # aquamarine
+        bar.addWidget(btn_load_recent)
+
         btn_save = QPushButton("Save")
         btn_save.clicked.connect(self.save_file)
         btn_save.setStyleSheet("background-color: #c8a882;")  # light brown
@@ -2014,6 +2021,55 @@ class GleApp(QMainWindow):
         saved = self.settings.value("last_saveas_dir", "", type=str)
         return saved if saved else self._start_dir()
 
+    def _normalise_recent_path(self, path: Path) -> Path:
+        expanded = path.expanduser()
+        if expanded.is_absolute():
+            return expanded.resolve(strict=False)
+        return (Path.cwd() / expanded).resolve(strict=False)
+
+    def _recent_files(self) -> list[Path]:
+        value = self.settings.value(RECENT_FILES_KEY, [])
+        if value is None:
+            raw_items = []
+        elif isinstance(value, str):
+            raw_items = [value] if value else []
+        else:
+            raw_items = list(value)
+
+        recent: list[Path] = []
+        seen: set[str] = set()
+        for item in raw_items:
+            if not item:
+                continue
+            path = self._normalise_recent_path(Path(str(item)))
+            key = os.path.normcase(str(path))
+            if key in seen:
+                continue
+            seen.add(key)
+            recent.append(path)
+            if len(recent) >= MAX_RECENT_FILES:
+                break
+        return recent
+
+    def _set_recent_files(self, paths: list[Path]) -> None:
+        recent: list[Path] = []
+        seen: set[str] = set()
+        for path in paths:
+            normalised = self._normalise_recent_path(path)
+            key = os.path.normcase(str(normalised))
+            if key in seen:
+                continue
+            seen.add(key)
+            recent.append(normalised)
+            if len(recent) >= MAX_RECENT_FILES:
+                break
+
+        self.settings.setValue(RECENT_FILES_KEY, [str(path) for path in recent])
+        self.settings.sync()
+
+    def _remember_recent_file(self, path: Path) -> None:
+        self._set_recent_files([path] + self._recent_files())
+
     def new_file(self) -> None:
         path_str, _ = QFileDialog.getSaveFileName(
             self, "New GLE file", self._new_dir(),
@@ -2034,7 +2090,8 @@ class GleApp(QMainWindow):
         self.editor.blockSignals(False)
         self._sync_line_spin_from_cursor()
         self._autosave_dirty = False
-        self._write_current()
+        if self._write_current():
+            self._remember_recent_file(new_path)
         self.pdf_viewer._scene.clear()
         self.setWindowTitle(f"GLE Editor \u2013 {new_path.name}")
         self.status_label.setText(f"New file: {new_path.name}")
@@ -2047,6 +2104,28 @@ class GleApp(QMainWindow):
         if path_str:
             self._load_path(Path(path_str))
 
+    def load_recent_file(self) -> None:
+        recent = self._recent_files()
+        if not recent:
+            QMessageBox.information(
+                self,
+                "Load Recent",
+                "No recent GLE files have been recorded yet.",
+            )
+            return
+
+        items = [str(path) for path in recent]
+        path_str, ok = QInputDialog.getItem(
+            self,
+            "Load Recent",
+            "Choose a recent GLE file:",
+            items,
+            0,
+            False,
+        )
+        if ok and path_str:
+            self._load_path(Path(path_str))
+
     def _load_path(self, path: Path) -> None:
         try:
             text = path.read_text(encoding="utf-8")
@@ -2056,6 +2135,7 @@ class GleApp(QMainWindow):
 
         self._current_path = path
         self.settings.setValue("last_dir", str(path.parent))
+        self._remember_recent_file(path)
 
         # Populate editor without triggering autosave
         self._autosave_timer.stop()
@@ -2086,7 +2166,11 @@ class GleApp(QMainWindow):
             self._current_path = Path(path_str)
             self.settings.setValue("last_dir", str(self._current_path.parent))
             self.setWindowTitle(f"GLE Editor – {self._current_path.name}")
+            if self._write_current():
+                self._remember_recent_file(self._current_path)
+            return
         self._write_current()
+
     def save_file_as(self) -> None:
         path_str, _ = QFileDialog.getSaveFileName(
             self, "Save As", self._saveas_dir(),
@@ -2099,16 +2183,20 @@ class GleApp(QMainWindow):
         self._current_path = Path(path_str)
         self.settings.setValue("last_saveas_dir", str(self._current_path.parent))
         self.setWindowTitle(f"GLE Editor \u2013 {self._current_path.name}")
-        self._write_current()
-    def _write_current(self) -> None:
+        if self._write_current():
+            self._remember_recent_file(self._current_path)
+
+    def _write_current(self) -> bool:
         if self._current_path is None:
-            return
+            return False
         try:
             self._current_path.write_text(self.editor.toPlainText(), encoding="utf-8")
             self._autosave_dirty = False
             self.status_label.setText(f"Saved {self._current_path.name}")
+            return True
         except Exception as e:
             QMessageBox.critical(self, "Save error", str(e))
+            return False
 
     def _on_text_changed(self) -> None:
         self._autosave_dirty = True
