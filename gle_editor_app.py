@@ -29,12 +29,15 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QColorDialog,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QInputDialog,
     QMainWindow,
     QMenu,
@@ -51,7 +54,7 @@ from PySide6.QtWidgets import (
 
 APP_ORG = "GLE-Editor"
 APP_NAME = "GleEditorApp"
-APP_VERSION = "1.0.17"
+APP_VERSION = "1.0.18"
 RECENT_FILES_KEY = "recent_files"
 MAX_RECENT_FILES = 20
 ABOUT_TEXT = (
@@ -60,7 +63,7 @@ ABOUT_TEXT = (
     "University of Oxford\n"
     "Department of Physics\n"
     f"Version {APP_VERSION}\n"
-    "June 2026"
+    "July 2026"
 )
 
 COMMON_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"]
@@ -2123,17 +2126,38 @@ class GleApp(QMainWindow):
             )
             return
 
-        items = [str(path) for path in recent]
-        path_str, ok = QInputDialog.getItem(
-            self,
-            "Load Recent",
-            "Choose a recent GLE file:",
-            items,
-            0,
-            False,
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Load Recent")
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+
+        label = QLabel("Choose a recent GLE file:")
+        layout.addWidget(label)
+
+        file_list = QListWidget(dialog)
+        file_list.addItems([str(path) for path in recent])
+        file_list.setCurrentRow(0)
+        file_list.setAlternatingRowColors(True)
+        file_list.setMinimumWidth(760)
+        file_list.setMinimumHeight(max(180, min(440, 26 * len(recent) + 8)))
+        file_list.itemActivated.connect(lambda _item: dialog.accept())
+        layout.addWidget(file_list)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel,
+            dialog,
         )
-        if ok and path_str:
-            self._load_path(Path(path_str))
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        file_list.setFocus()
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            selected = file_list.currentItem()
+            if selected is not None:
+                self._load_path(Path(selected.text()))
 
     def _load_path(self, path: Path) -> None:
         try:
