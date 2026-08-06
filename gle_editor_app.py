@@ -24,7 +24,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QRectF, QSettings, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QSyntaxHighlighter, QTextCharFormat, QTextCursor
+from PySide6.QtGui import QActionGroup, QColor, QFont, QIcon, QImage, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QSyntaxHighlighter, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -54,9 +54,10 @@ from PySide6.QtWidgets import (
 
 APP_ORG = "GLE-Editor"
 APP_NAME = "GleEditorApp"
-APP_VERSION = "1.0.19"
+APP_VERSION = "1.0.20"
 RECENT_FILES_KEY = "recent_files"
 MAX_RECENT_FILES = 20
+INSERT_POSITION_KEY = "insert_position_mode"
 ABOUT_TEXT = (
     "GLE Editor\n"
     "Stephen Blundell\n"
@@ -1482,6 +1483,9 @@ class GleApp(QMainWindow):
         self.fillcolor = "grey20"
         self._grid_mode = 0
         self._about_popup: AboutPopup | None = None
+        self._insert_position_mode = self.settings.value(INSERT_POSITION_KEY, "cursor", type=str)
+        if self._insert_position_mode not in {"cursor", "next_line", "end_file"}:
+            self._insert_position_mode = "cursor"
 
         # Autosave 1 second after the last keystroke
         self._autosave_timer = QTimer(self)
@@ -1595,10 +1599,14 @@ class GleApp(QMainWindow):
         self.btn_grid.setStyleSheet("QPushButton { background-color: #d8b4fe; color: #111; }")
         bar.addWidget(self.btn_grid)
 
-        btn_add_element = QPushButton("Add element")
-        btn_add_element.clicked.connect(self.toggle_element_bar)
-        btn_add_element.setStyleSheet("background-color: #4169e1; color: white;")  # blue
-        bar.addWidget(btn_add_element)
+        self.insert_element_button = QToolButton()
+        self.insert_element_button.setText("Insert element")
+        self.insert_element_button.clicked.connect(self.toggle_element_bar)
+        self.insert_element_button.setMenu(self._build_insert_position_menu())
+        self.insert_element_button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self.insert_element_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.insert_element_button.setStyleSheet("background-color: #4169e1; color: white;")  # blue
+        bar.addWidget(self.insert_element_button)
 
         self.insert_menu_button = QToolButton()
         self.insert_menu_button.setText("Insert common")
@@ -2456,80 +2464,52 @@ class GleApp(QMainWindow):
         self.editor.undo()
 
     def insert_amove(self, x: float, y: float) -> None:
-        # Insert "amove x y" on its own line
-        text = f"\namove {x:.2f} {y:.2f}\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x:.2f} {y:.2f}\n"
+        self._insert_text_by_mode(text)
 
     def insert_aline(self, x1: float, y1: float, x2: float, y2: float) -> None:
-        # Insert amove and aline on their own lines
-        text = f"\namove {x1:.2f} {y1:.2f}\naline {x2:.2f} {y2:.2f}\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\naline {x2:.2f} {y2:.2f}\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     def insert_box(self, x1: float, y1: float, x2: float, y2: float) -> None:
-        # Insert amove and box on their own lines
         dx = x2 - x1
         dy = y2 - y1
-        text = f"\namove {x1:.2f} {y1:.2f}\nbox {dx:.2f} {dy:.2f}\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\nbox {dx:.2f} {dy:.2f}\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     def insert_circle(self, x1: float, y1: float, x2: float, y2: float) -> None:
         radius = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
-        text = f"\namove {x1:.2f} {y1:.2f}\ncircle {radius:.2f}\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\ncircle {radius:.2f}\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     def insert_circle_fill(self, x1: float, y1: float, x2: float, y2: float) -> None:
         radius = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
-        text = f"\namove {x1:.2f} {y1:.2f}\ncircle {radius:.2f} fill {self.fillcolor}\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\ncircle {radius:.2f} fill {self.fillcolor}\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     def insert_ellipse(self, x1: float, y1: float, x2: float, y2: float) -> None:
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
-        text = f"\namove {x1:.2f} {y1:.2f}\nellipse {dx:.2f} {dy:.2f}\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\nellipse {dx:.2f} {dy:.2f}\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     def insert_ellipse_fill(self, x1: float, y1: float, x2: float, y2: float) -> None:
         dx = abs(x2 - x1)
         dy = abs(y2 - y1)
-        text = f"\namove {x1:.2f} {y1:.2f}\nellipse {dx:.2f} {dy:.2f} fill {self.fillcolor}\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\nellipse {dx:.2f} {dy:.2f} fill {self.fillcolor}\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     def insert_box_fill(self, x1: float, y1: float, x2: float, y2: float) -> None:
-        # Insert amove and box with fill option on their own lines
         dx = x2 - x1
         dy = y2 - y1
-        text = f"\namove {x1:.2f} {y1:.2f}\nbox {dx:.2f} {dy:.2f} fill {self.fillcolor}\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\nbox {dx:.2f} {dy:.2f} fill {self.fillcolor}\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     def insert_text_element(self, x: float, y: float) -> None:
@@ -2538,11 +2518,8 @@ class GleApp(QMainWindow):
             line = f"text \\tex{{{entered_text}}}"
         else:
             line = f"text {entered_text}"
-        text = f"\namove {x:.2f} {y:.2f}\n{line}\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x:.2f} {y:.2f}\n{line}\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
         self.btn_text.setChecked(False)
 
@@ -2552,10 +2529,7 @@ class GleApp(QMainWindow):
             return
 
         hex_code = f"#{color.red():02X}{color.green():02X}{color.blue():02X}"
-        cursor = self.editor.textCursor()
-        cursor.insertText(f"set color {hex_code}\n")
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        self._insert_text_by_mode(f"set color {hex_code}\n")
 
     def choose_fill(self) -> None:
         options = ["black", "white", "grey20", "grey5", "colour"]
@@ -2582,30 +2556,18 @@ class GleApp(QMainWindow):
         self.status_label.setText(f"Fill set to {self.fillcolor}")
 
     def insert_arrow_end(self, x1: float, y1: float, x2: float, y2: float) -> None:
-        # Insert exactly like aline, with "arrow end" suffix
-        text = f"\namove {x1:.2f} {y1:.2f}\naline {x2:.2f} {y2:.2f} arrow end\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\naline {x2:.2f} {y2:.2f} arrow end\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     def insert_arrow_start(self, x1: float, y1: float, x2: float, y2: float) -> None:
-        # Insert exactly like aline, with "arrow start" suffix
-        text = f"\namove {x1:.2f} {y1:.2f}\naline {x2:.2f} {y2:.2f} arrow start\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\naline {x2:.2f} {y2:.2f} arrow start\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     def insert_arrow_both(self, x1: float, y1: float, x2: float, y2: float) -> None:
-        # Insert exactly like aline, with "arrow both" suffix
-        text = f"\namove {x1:.2f} {y1:.2f}\naline {x2:.2f} {y2:.2f} arrow both\n"
-        cursor = self.editor.textCursor()
-        cursor.insertText(text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        text = f"amove {x1:.2f} {y1:.2f}\naline {x2:.2f} {y2:.2f} arrow both\n"
+        self._insert_text_by_mode(text)
         self.run_gle()
 
     # ── Find / Replace ────────────────────────────────────────────────────────
@@ -2723,8 +2685,54 @@ class GleApp(QMainWindow):
 
     # ── Snippet insertion ─────────────────────────────────────────────────────
 
+    def _set_insert_position_mode(self, mode: str) -> None:
+        if mode not in {"cursor", "next_line", "end_file"}:
+            return
+        self._insert_position_mode = mode
+        self.settings.setValue(INSERT_POSITION_KEY, mode)
+        self.settings.sync()
+
+    def _insert_text_by_mode(self, text: str) -> None:
+        cursor = self.editor.textCursor()
+        mode = self._insert_position_mode
+
+        if mode == "next_line":
+            cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+            if not cursor.movePosition(QTextCursor.MoveOperation.NextBlock):
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+                if self.editor.toPlainText() and not self.editor.toPlainText().endswith("\n"):
+                    cursor.insertText("\n")
+        elif mode == "end_file":
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            if self.editor.toPlainText() and not self.editor.toPlainText().endswith("\n"):
+                cursor.insertText("\n")
+
+        cursor.insertText(text)
+        self.editor.setTextCursor(cursor)
+        self.editor.setFocus()
+
+    def _build_insert_position_menu(self) -> QMenu:
+        menu = QMenu(self)
+        position_modes = [
+            ("cursor", "Insert at cursor position"),
+            ("next_line", "Insert in next line"),
+            ("end_file", "Insert at end of file"),
+        ]
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        for mode_key, label in position_modes:
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(mode_key == self._insert_position_mode)
+            action.triggered.connect(
+                lambda checked=False, selected_mode=mode_key: self._set_insert_position_mode(selected_mode)
+            )
+            group.addAction(action)
+        return menu
+
     def _build_insert_menu(self) -> QMenu:
         menu = QMenu(self)
+
         for label, text in COMMON_SNIPPETS:
             action = menu.addAction(label)
             action.triggered.connect(
@@ -2743,11 +2751,8 @@ class GleApp(QMainWindow):
         )
         if response != QMessageBox.StandardButton.Yes:
             return
-        cursor = self.editor.textCursor()
-        full_text = f"\n{text}\n"
-        cursor.insertText(full_text)
-        self.editor.setTextCursor(cursor)
-        self.editor.setFocus()
+        full_text = f"{text}\n"
+        self._insert_text_by_mode(full_text)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
